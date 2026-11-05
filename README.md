@@ -52,6 +52,9 @@ Open files are scanned with their unsaved changes. Every result goes to the Prob
 
 Click the AccessGen icon in the Activity Bar. The panel tracks everything in one place:
 
+- **Page**: *Current page* (follows the file you are editing), *All pages* (grouped by page), or any single scanned page. Files you pick with **Scan Selected Files…** also open in editor tabs, so you can move between them.
+- **Filters**: severity (click the Critical / Warnings / Advisory counts to show or hide them), category (Images, Links, Forms, Buttons & keyboard, Structure, Tables, Media, Color & focus, Page) and search.
+
 - **Summary**: a 0-100 score (100 minus weighted issues per scanned file), critical / warning / advisory counts, and files with issues.
 - **Issues**: grouped by file, filterable by text and severity. Each issue has **Go to** and **Fix with AI**; each file has **Fix file** (one AI request for all of its issues).
 - **Fixes**: every proposed fix with its status (**Ready**, **Needs your answer**, **Review carefully** and why, **Probably not a problem**, **Fix by hand**), in plain language rather than rule ids, the model's confidence, the remediation steps, how to test it, and the exact change as a diff. **Accept**, **Reject** or **Preview diff** (side-by-side diff editor) each one, or **Apply all ready fixes** at once.
@@ -274,15 +277,15 @@ AccessGen includes 27 accessibility rules across HTML, JSX, and CSS.
 | `img-alt-missing` | Critical | 1.1.1 (A) | Images must have an alt attribute |
 | `input-label-missing` | Critical | 1.3.1 (A) | Input fields must have an associated label |
 | `button-empty` | Critical | 4.1.2 (A) | Buttons must have an accessible name |
-| `anchor-no-text` | Critical | 2.4.4 (A) | Links must have descriptive text |
-| `heading-hierarchy-skip` | Warning | 1.3.1 (A) | Heading levels must not skip (e.g., h1 to h3) |
+| `anchor-no-text` | Critical / Warning | 2.4.4 (A) | Links need a name (critical when empty). A generic phrase ("click here") is a warning only when its sentence does not explain it; at AAA it is 2.4.9 advice. URL or domain text is fine |
+| `heading-hierarchy-skip` | Advisory | 1.3.1 (A) | Heading levels should not skip (best practice) |
 | `div-used-as-button` | Warning | 4.1.2 (A) | Divs/spans with onclick need role and tabindex |
-| `form-missing-landmark` | Warning | 1.3.1 (A) | Forms must have an accessible name |
+| `form-missing-landmark` | Advisory | 1.3.1 (A) | When a page has several forms, name them so they can be told apart |
 | `select-no-label` | Critical | 1.3.1 (A) | Select dropdowns must have a label |
-| `table-missing-headers` | Warning | 1.3.1 (A) | Tables must have th elements with scope |
+| `table-missing-headers` | Warning | 1.3.1 (A) | Data tables (2+ rows and columns) need header cells; broken headers= references; scope advised for two-axis tables |
 | `iframe-missing-title` | Critical | 4.1.2 (A) | Iframes must have a title attribute |
 | `html-missing-lang` | Critical | 3.1.1 (A) | The html element must have a lang attribute |
-| `duplicate-id` | Critical | 4.1.1 (A) | Element IDs must be unique |
+| `duplicate-id` | Critical / Advisory | 1.3.1 / 4.1.1 (A) | Critical when a label or ARIA attribute points at the duplicated id; otherwise advice (4.1.1 is obsolete in WCAG 2.2) |
 | `positive-tabindex` | Warning | 2.4.3 (A) | Positive tabindex values disrupt tab order |
 | `autofocus-used` | Advisory | 3.2.1 (A) | Autofocus can disorient screen reader users |
 | `media-missing-captions` | Critical | 1.2.2 (A) | Video/audio must have a captions track |
@@ -294,7 +297,7 @@ AccessGen includes 27 accessibility rules across HTML, JSX, and CSS.
 | `jsx-img-alt-missing` | Critical | 1.1.1 (A) | JSX img elements must have an alt prop |
 | `jsx-onclick-no-keyboard` | Critical | 2.1.1 (A) | onClick must have a keyboard handler |
 | `jsx-interactive-no-role` | Warning | 4.1.2 (A) | Interactive non-semantic elements need a role |
-| `jsx-anchor-no-content` | Critical | 2.4.4 (A) | Anchors must have content or aria-label |
+| `jsx-anchor-no-content` | Critical / Warning | 2.4.4 (A) | Same as `anchor-no-text`, for JSX |
 | `jsx-label-missing` | Critical | 1.3.1 (A) | Form elements must have labels |
 | `jsx-aria-invalid-role` | Warning | 4.1.2 (A) | ARIA role values must be valid |
 | `jsx-mouse-events-no-focus` | Warning | 2.1.1 (A) | Mouse events need focus/blur equivalents |
@@ -307,7 +310,11 @@ AccessGen includes 27 accessibility rules across HTML, JSX, and CSS.
 | `outline-removed` | Critical | 2.4.7 (AA) | Focus outlines must not be removed without replacement |
 | `color-contrast-low` | Warning | 1.4.3 (AA) | Text must meet 4.5:1 contrast ratio (3:1 for large text: 24px, or 18.66px bold) |
 | `motion-no-preference-check` | Advisory | 2.3.3 (AAA) | Animations need prefers-reduced-motion query |
-| `focus-visible-missing` | Warning | 2.4.7 (AA) | :focus rules should have :focus-visible equivalents |
+| `focus-visible-missing` | Advisory | 2.4.7 (AA) | :focus styles meet 2.4.7; a :focus-visible variant is a recommended refinement |
+
+### Precision
+
+Every rule reports only what WCAG actually fails, at a severity that matches, and skips what users cannot reach. Elements hidden from everyone (`hidden`, `aria-hidden="true"`, inline `display:none`, `<template>`) are not checked. JSX components (`<Card onClick>`) are not treated as DOM elements, and spread props (`{...props}`) are assumed to possibly supply a name. Correct patterns such as `:focus:not(:focus-visible) { outline: none }`, `::-moz-focus-inner` and `[tabindex="-1"]:focus` are not reported. `test/rule-precision.test.js` pins what must and must not be reported, and a well-built page produces no findings at Level AA.
 
 ## Compliance Levels
 

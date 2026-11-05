@@ -4,7 +4,7 @@
 
 const vscode = require('vscode');
 const crypto = require('crypto');
-const { titleOf, impactOf } = require('../rules/titles');
+const { titleOf, impactOf, categoryOf, CATEGORIES } = require('../rules/titles');
 
 const VIEW_ID = 'accessgen.panel';
 const SETTINGS = {
@@ -18,7 +18,7 @@ const SETTINGS = {
   aiRemediationModel: 'text'
 };
 
-function createPanelProvider({ extensionUri, store, controller, actions, getConfig, relPath }) {
+function createPanelProvider({ extensionUri, store, controller, actions, getConfig, relPath, activeUri }) {
   let view = null;
   let busy = null;
   let pending = false;
@@ -26,19 +26,21 @@ function createPanelProvider({ extensionUri, store, controller, actions, getConf
 
   function state() {
     const cfg = getConfig();
-    const files = store.listFiles().filter(f => f.violations.length).map(f => ({
+    const active = typeof activeUri === 'function' ? activeUri() : null;
+    // Pages with issues, plus the active page when it was scanned and is clean (so it can be shown as clean).
+    const files = store.listFiles().filter(f => f.violations.length || f.uri === active).map(f => ({
       uri: f.uri,
       relPath: relPath(f.uri),
       languageId: f.languageId,
       issues: f.violations.map((v, i) => ({
-        index: i, ruleId: v.ruleId, title: titleOf(v.ruleId), impact: impactOf(v.ruleId), severity: v.severity, wcag: (v.message && v.message.wcag) || '',
+        index: i, ruleId: v.ruleId, title: titleOf(v.ruleId), impact: impactOf(v.ruleId), category: categoryOf(v.ruleId), severity: v.severity, wcag: (v.message && v.message.wcag) || '',
         line: v.startLine + 1, what: (v.message && v.message.what) || '', fix: (v.message && v.message.fix) || ''
       })).sort((x, y) => x.line - y.line)
     })).sort((a, b) => a.relPath.localeCompare(b.relPath));
     const proposals = store.listProposals().map(p => {
       const f = store.getFile(p.uri);
       return {
-        id: p.id, uri: p.uri, relPath: relPath(p.uri), ruleId: p.ruleId, title: titleOf(p.ruleId), impact: impactOf(p.ruleId), wcag: p.wcag || '', severity: p.severity, line: p.line,
+        id: p.id, uri: p.uri, relPath: relPath(p.uri), ruleId: p.ruleId, title: titleOf(p.ruleId), impact: impactOf(p.ruleId), category: categoryOf(p.ruleId), wcag: p.wcag || '', severity: p.severity, line: p.line,
         hasInput: !!p.hasInput, suggestions: p.suggestions || [],
         status: p.status, decision: p.decision, source: p.source, confidence: p.confidence, summary: p.summary,
         steps: p.steps || [], testing: p.testing || '', needsInput: p.needsInput || '', model: p.model || '',
@@ -49,6 +51,8 @@ function createPanelProvider({ extensionUri, store, controller, actions, getConf
     }).sort((a, b) => (a.decision === 'pending' ? 0 : 1) - (b.decision === 'pending' ? 0 : 1) || a.relPath.localeCompare(b.relPath) || a.line - b.line);
     return {
       summary: store.summary(),
+      activeUri: active,
+      categories: CATEGORIES,
       files,
       proposals,
       busy,
@@ -115,7 +119,7 @@ function createPanelProvider({ extensionUri, store, controller, actions, getConf
       '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src ' + webview.cspSource + '; script-src \'nonce-' + nonce + '\'; img-src ' + webview.cspSource + ' data:;">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
       '<link rel="stylesheet" href="' + css + '"><title>AccessGen</title></head>' +
-      '<body><div id="app" role="application" aria-label="AccessGen accessibility issues and fixes"></div>' +
+      '<body><main id="app" aria-label="AccessGen accessibility issues and fixes"></main>' +
       '<script nonce="' + nonce + '" src="' + js + '"></script></body></html>';
   }
 

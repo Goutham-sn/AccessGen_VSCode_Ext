@@ -628,6 +628,24 @@ function activate(context) {
         } else files.push(u);
       }
       await scanWithProgress(files, 'AccessGen: scanning ' + files.length + ' file' + (files.length === 1 ? '' : 's'));
+      await openInTabs(files);
+    }
+
+    // The files the developer picked are opened as editor tabs, so each page's issues can be reviewed in place.
+    const MAX_TABS = 20;
+    async function openInTabs(uris) {
+      let list = uris;
+      if (uris.length > MAX_TABS) {
+        const pick = await vscode.window.showInformationMessage('AccessGen: open all ' + uris.length + ' scanned files in tabs?', 'Open first ' + MAX_TABS, 'Open all', 'Don\'t open');
+        if (!pick || pick === 'Don\'t open') return;
+        if (pick !== 'Open all') list = uris.slice(0, MAX_TABS);
+      }
+      for (let i = 0; i < list.length; i++) {
+        try {
+          const doc = await vscode.workspace.openTextDocument(list[i]);
+          await vscode.window.showTextDocument(doc, { preview: false, preserveFocus: i < list.length - 1 });
+        } catch (e) { /* a file that cannot be opened is skipped */ }
+      }
     }
 
     async function scanWorkspace() {
@@ -655,6 +673,7 @@ function activate(context) {
     const panel = createPanelProvider({
       extensionUri: () => context.extensionUri || vscode.Uri.file(context.extensionPath || require('path').join(__dirname, '..')),
       store, controller, getConfig, relPath: relPathOf,
+      activeUri: () => (vscode.window.activeTextEditor ? vscode.window.activeTextEditor.document.uri.toString() : null),
       actions: {
         scanActive, scanSelected: () => scanSelected(), scanWorkspace, fixFiles, fixIssue,
         remediationModel: () => providers.resolveRemediationModel(getConfig()),
@@ -952,6 +971,7 @@ function activate(context) {
     });
 
     const onEditorChange = vscode.window.onDidChangeActiveTextEditor((editor) => {
+      try { panel.refresh(); } catch (e) { /* the panel follows the active page */ }
       if (editor && enabled) {
         inlineDiff.show(editor.document); // this editor may have lost its decorations while it was not shown
         runAnalysis(editor);

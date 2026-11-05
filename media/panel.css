@@ -132,3 +132,57 @@ input[type="search"] { flex: 1; min-width: 120px; }
 .more summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
 .card .title-row + .muted { margin-top: 2px; }
 .change .ctx code { color: var(--vscode-descriptionForeground); }
+
+/* ---- v3: severity shapes, filters, compact rows ---- */
+.sev { display: inline-flex; align-items: center; flex: none; }
+.sev-icon { display: inline-block; width: 9px; height: 9px; flex: none; }
+.sev-critical .sev-icon { background: var(--bad); border-radius: 50%; }
+.sev-warning .sev-icon { background: var(--warn); clip-path: polygon(50% 0, 100% 100%, 0 100%); width: 10px; }
+.sev-advisory .sev-icon { border: 2px solid var(--info); border-radius: 50%; box-sizing: border-box; }
+.summary { align-items: center; }
+.sev-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-toggle { font: inherit; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; padding: 2px 9px; border-radius: 12px;
+  color: var(--vscode-foreground); background: var(--vscode-editorWidget-background, transparent); border: 1px solid var(--vscode-widget-border, #8886); }
+.chip-toggle[aria-pressed="false"] { opacity: .55; text-decoration: line-through; }
+.chip-toggle:hover { border-color: var(--vscode-focusBorder); }
+.chip-count { font-weight: 600; }
+.score { width: 48px; height: 48px; }
+.score-num { font-size: 16px; }
+.btn.small { padding: 1px 8px; font-size: 12px; }
+.filters { align-items: flex-end; }
+.field-inline { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.field-inline label { font-size: 11px; color: var(--vscode-descriptionForeground); }
+.field-inline.grow { flex: 1; min-width: 140px; }
+.field-inline select { max-width: 100%; }
+#page { max-width: 260px; }
+.result-count { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0 0 4px; min-height: 14px; }
+.page { margin-bottom: 8px; }
+.page-head { display: flex; align-items: center; gap: 6px; }
+.page-title { margin: 0; flex: 1; min-width: 0; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--vscode-foreground); }
+.issues { padding-left: 0; }
+.issue { padding: 6px 8px; margin: 3px 0; }
+.issue-main { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: start; }
+.issue-main .sev { padding-top: 4px; }
+.issue-text { min-width: 0; }
+.issue-text p { margin: 1px 0 0; }
+.link-btn { font: inherit; font-weight: 600; text-align: left; padding: 0; border: none; background: none; color: var(--vscode-foreground); cursor: pointer; }
+.link-btn:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground, var(--vscode-foreground)); }
+.line-no { font-size: 11px; color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); padding-top: 2px; }
+.empty { padding: 16px 0; color: var(--vscode-descriptionForeground); }
+.empty p { margin: 0 0 8px; }
+.tab:focus-visible, .chip-toggle:focus-visible, .link-btn:focus-visible, .disclosure:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
+/* ---- contrast: status and chips use the theme's text color; color is only an accent (border / icon) ---- */
+.status { color: var(--vscode-foreground); border: 1px solid; }
+.st-good { border-color: var(--good); } .st-warn { border-color: var(--warn); } .st-bad { border-color: var(--bad); }
+.st-good::before { content: "\2713  "; color: var(--good); }
+.st-warn::before { content: "!  "; color: var(--warn); font-weight: 700; }
+.st-info, .st-done { border-color: var(--vscode-widget-border, #8886); color: var(--vscode-descriptionForeground); }
+.chip { background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-widget-border, #8886); }
+.chip:hover { background: var(--vscode-button-secondaryHoverBackground, transparent); }
+.check.ok, .check.no { color: var(--vscode-foreground); }
+.check.ok::first-letter { color: var(--good); }
+.pill { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+/* the severity marker is an icon, not a badge (overrides the old .sev badge style) */
+.sev { border: 0; padding: 0; border-radius: 0; font-size: inherit; }
+.chip-toggle.sev-critical, .chip-toggle.sev-warning, .chip-toggle.sev-advisory { color: var(--vscode-foreground); }

@@ -3,14 +3,22 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const saved = vscode.getState() || {};
-  const ui = { tab: saved.tab || 'issues', filter: saved.filter || '', severity: saved.severity || 'all', show: saved.show || 'pending', collapsed: saved.collapsed || {}, answers: saved.answers || {} };
+  const ui = {
+    tab: saved.tab || 'issues', page: saved.page || 'current', category: saved.category || 'all', filter: saved.filter || '',
+    sev: saved.sev || { critical: true, warning: true, advisory: true }, show: saved.show || 'pending', collapsed: saved.collapsed || {}, answers: saved.answers || {}
+  };
   let data = null;
   const app = document.getElementById('app');
   const ELLIPSIS = '\u2026';
+  const DOT = ' \u00b7 ';
   const SLOT = '{{INPUT}}';
+  const SEV = [['critical', 'Critical'], ['warning', 'Warnings'], ['advisory', 'Advisory']];
+  const sevName = (s) => (s === 'critical' ? 'Critical' : s === 'warning' ? 'Warning' : 'Advisory');
+  const sevKey = (s) => (s === 'critical' || s === 'warning' ? s : 'advisory');
 
   const persist = () => vscode.setState(ui);
   const post = (msg) => vscode.postMessage(msg);
+  const baseName = (p) => String(p || '').split(/[\\/]/).pop();
 
   function el(tag, attrs, ...kids) {
     const n = document.createElement(tag);
@@ -28,39 +36,56 @@
     type: 'button', class: 'btn ' + ((opts && opts.kind) || ''), onclick, title: opts && opts.title, 'aria-label': opts && opts.aria,
     disabled: (opts && opts.disabled) || busy() ? true : null
   }, label);
-  const sevDot = (s) => el('span', { class: 'dot dot-' + (s || 'advisory'), title: s === 'critical' ? 'Critical' : s === 'warning' ? 'Warning' : 'Advisory', 'aria-label': s === 'critical' ? 'Critical' : s === 'warning' ? 'Warning' : 'Advisory', role: 'img' });
+  // Severity is shown as a shape and a word, never by color alone.
+  const sevDot = (s) => el('span', { class: 'sev sev-' + sevKey(s) }, el('span', { class: 'sev-icon', 'aria-hidden': 'true' }), el('span', { class: 'sr-only' }, sevName(s) + ': '));
 
-  // ---------------------------------------------------------------------------------- header + toolbar
+  // ---------------------------------------------------------------------------------- filtering
+  // The page the filters point at: a uri, or null for all pages.
+  function currentPage() {
+    if (ui.page === 'all') return null;
+    if (ui.page === 'current') return data.activeUri || null;
+    return ui.page;
+  }
+  const pageLabel = (uri) => { const f = data.files.find(x => x.uri === uri); return f ? f.relPath : baseName(uri); };
+  const pageMatches = (uri) => { const p = currentPage(); return !p || p === uri; };
+  const issueMatches = (f, it) => ui.sev[sevKey(it.severity)] && (ui.category === 'all' || it.category === ui.category) &&
+    (!ui.filter || (f.relPath + ' ' + it.title + ' ' + it.ruleId + ' ' + it.what + ' ' + it.wcag).toLowerCase().includes(ui.filter.toLowerCase()));
+
+  // ---------------------------------------------------------------------------------- header
   function header() {
     const s = data.summary;
-    const score = s.score === null ? '-' : s.score;
     const tone = s.score === null ? '' : s.score >= 90 ? 'good' : s.score >= 60 ? 'ok' : 'bad';
+    const counts = { critical: 0, warning: 0, advisory: 0 };
+    for (const f of data.files) if (pageMatches(f.uri)) for (const it of f.issues) counts[sevKey(it.severity)]++;
     return el('section', { class: 'summary', 'aria-label': 'Summary' },
-      el('div', { class: 'score ' + tone, title: 'Accessibility score: 100 minus weighted issues per scanned file' },
-        el('span', { class: 'score-num' }, String(score)), el('span', { class: 'score-label' }, 'score')),
-      el('dl', { class: 'counts' },
-        el('div', {}, el('dt', {}, 'Critical'), el('dd', { class: 'c-critical' }, String(s.critical))),
-        el('div', {}, el('dt', {}, 'Warnings'), el('dd', { class: 'c-warning' }, String(s.warning))),
-        el('div', {}, el('dt', {}, 'Advisory'), el('dd', {}, String(s.advisory))),
-        el('div', {}, el('dt', {}, 'Files'), el('dd', {}, s.filesWithIssues + '/' + s.files))));
+      el('div', { class: 'score ' + tone, role: 'img', 'aria-label': s.score === null ? 'No score yet' : 'Accessibility score ' + s.score + ' out of 100' },
+        el('span', { class: 'score-num', 'aria-hidden': 'true' }, s.score === null ? '-' : String(s.score)), el('span', { class: 'score-label', 'aria-hidden': 'true' }, 'score')),
+      el('div', { class: 'sev-filters', role: 'group', 'aria-label': 'Show severities' },
+        ...SEV.map(([k, label]) => el('button', {
+          type: 'button', class: 'chip-toggle sev-' + k, 'aria-pressed': String(!!ui.sev[k]),
+          title: (ui.sev[k] ? 'Hide ' : 'Show ') + label.toLowerCase(),
+          onclick: () => { ui.sev[k] = !ui.sev[k]; if (!SEV.some(([x]) => ui.sev[x])) ui.sev[k] = true; persist(); render(); }
+        }, el('span', { class: 'sev-icon', 'aria-hidden': 'true' }), el('span', { class: 'chip-count' }, String(counts[k])), ' ' + label))));
   }
 
   function toolbar() {
-    const issueCount = data.files.reduce((n, f) => n + f.issues.length, 0);
+    const page = currentPage();
+    const pageHasIssues = page ? data.files.some(f => f.uri === page && f.issues.length) : data.files.some(f => f.issues.length);
     return el('div', { class: 'toolbar' },
-      el('div', { class: 'row' },
+      el('div', { class: 'row', role: 'group', 'aria-label': 'Scan' },
         btn('Scan file', () => post({ type: 'scanFile' }), { title: 'Check the file open in the editor' }),
-        btn('Scan files' + ELLIPSIS, () => post({ type: 'scanFiles' }), { title: 'Pick one or more files to check' }),
+        btn('Scan files' + ELLIPSIS, () => post({ type: 'scanFiles' }), { title: 'Pick files to check; they open in tabs' }),
         btn('Scan project', () => post({ type: 'scanWorkspace' }), { title: 'Check every HTML, JSX, TSX and CSS file' })),
-      el('div', { class: 'row' },
-        btn('Fix all with AI', () => post({ type: 'fixAll' }), { kind: 'primary', disabled: !issueCount, title: 'One AI request per file. Issues already answered are not sent again.' }),
+      el('div', { class: 'row', role: 'group', 'aria-label': 'Fix' },
+        page ? btn('Fix this page with AI', () => post({ type: 'fixFile', uri: page }), { kind: 'primary', disabled: !pageHasIssues, title: 'One AI request for every issue on ' + baseName(pageLabel(page)) })
+          : btn('Fix all pages with AI', () => post({ type: 'fixAll' }), { kind: 'primary', disabled: !pageHasIssues, title: 'One AI request per page. Issues already answered are not sent again.' }),
         btn('Export report', () => post({ type: 'exportReport' }), { disabled: !data.summary.files })),
       el('div', { class: 'busy', role: 'status', 'aria-live': 'polite' }, busy() ? el('span', { class: 'spinner', 'aria-hidden': 'true' }) : null, data.busy || ''));
   }
 
   function tabs() {
-    const toReview = data.proposals.filter(p => p.decision === 'pending' && p.status !== 'covered').length;
-    const issueCount = data.files.reduce((n, f) => n + f.issues.length, 0);
+    const toReview = data.proposals.filter(p => p.decision === 'pending' && p.status !== 'covered' && pageMatches(p.uri)).length;
+    const issueCount = data.files.filter(f => pageMatches(f.uri)).reduce((n, f) => n + f.issues.filter(it => issueMatches(f, it)).length, 0);
     const defs = [['issues', 'Issues', issueCount], ['fixes', 'Fixes', toReview], ['settings', 'Settings', null]];
     const list = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'AccessGen views' });
     defs.forEach(([id, label, n], i) => {
@@ -69,60 +94,105 @@
         onclick: () => { ui.tab = id; persist(); render(); document.getElementById('tab-' + id).focus(); },
         onkeydown: (e) => {
           const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-          if (!dir) return;
+          const jump = e.key === 'Home' ? 0 : e.key === 'End' ? defs.length - 1 : null;
+          if (!dir && jump === null) return;
           e.preventDefault();
-          ui.tab = defs[(i + dir + defs.length) % defs.length][0]; persist(); render(); document.getElementById('tab-' + ui.tab).focus();
+          ui.tab = defs[jump !== null ? jump : (i + dir + defs.length) % defs.length][0]; persist(); render(); document.getElementById('tab-' + ui.tab).focus();
         }
-      }, label, n !== null ? el('span', { class: 'pill' }, String(n)) : null));
+      }, label, n !== null ? el('span', { class: 'pill', 'aria-label': '(' + n + ')' }, String(n)) : null));
     });
     return list;
   }
 
-  // ---------------------------------------------------------------------------------- issues
-  function issuesView() {
-    const wrap = el('div', { role: 'tabpanel', id: 'panel-issues', 'aria-labelledby': 'tab-issues' });
-    const sev = el('select', { id: 'sev', onchange: (e) => { ui.severity = e.target.value; persist(); renderList(); } });
-    for (const [v, l] of [['all', 'All severities'], ['critical', 'Critical'], ['warning', 'Warnings'], ['advisory', 'Advisory']]) sev.append(el('option', { value: v, selected: ui.severity === v }, l));
-    wrap.append(el('div', { class: 'filters' },
-      el('label', { class: 'sr-only', for: 'filter' }, 'Filter issues'),
-      el('input', { id: 'filter', type: 'search', placeholder: 'Filter by file or problem', value: ui.filter, oninput: (e) => { ui.filter = e.target.value; persist(); renderList(); } }),
-      el('label', { class: 'sr-only', for: 'sev' }, 'Severity'), sev));
-    const list = el('div', { class: 'list' });
-    wrap.append(list);
-
-    function renderList() {
-      list.textContent = '';
-      const q = ui.filter.toLowerCase();
-      const fixFor = new Map(data.proposals.filter(p => p.decision === 'pending').map(p => [p.uri + '|' + p.ruleId + '|' + p.line, p]));
-      let shown = 0;
-      for (const f of data.files) {
-        const issues = f.issues.filter(it => (ui.severity === 'all' || it.severity === ui.severity || (ui.severity === 'advisory' && it.severity !== 'critical' && it.severity !== 'warning')) &&
-          (!q || (f.relPath + ' ' + it.title + ' ' + it.ruleId + ' ' + it.what).toLowerCase().includes(q)));
-        if (!issues.length) continue;
-        shown += issues.length;
-        const open = !ui.collapsed[f.uri];
-        const body = el('ul', { class: 'issues', hidden: !open });
-        for (const it of issues) {
-          const p = fixFor.get(f.uri + '|' + it.ruleId + '|' + it.line);
-          body.append(el('li', { class: 'issue' },
-            el('div', { class: 'title-row' }, sevDot(it.severity), el('span', { class: 'title' }, it.title), el('span', { class: 'muted nowrap' }, 'line ' + it.line)),
-            el('p', { class: 'muted small' }, it.impact || it.what),
-            el('div', { class: 'row' },
-              btn('Go to', () => post({ type: 'open', uri: f.uri, line: it.line }), { aria: 'Go to ' + it.title + ', line ' + it.line }),
-              p ? btn('See the fix', () => { ui.tab = 'fixes'; ui.focus = p.id; persist(); render(); }, { kind: 'primary' })
-                : btn('Fix with AI', () => post({ type: 'fixIssue', uri: f.uri, index: it.index }), { aria: 'Fix ' + it.title + ' at line ' + it.line + ' with AI' }))));
-        }
-        list.append(el('section', { class: 'file' },
-          el('div', { class: 'file-head' },
-            el('button', { type: 'button', class: 'disclosure', 'aria-expanded': String(open), onclick: () => { ui.collapsed[f.uri] = open; persist(); renderList(); } },
-              el('span', { class: 'chev', 'aria-hidden': 'true' }, open ? '\u25be' : '\u25b8'), el('span', { class: 'path' }, f.relPath), el('span', { class: 'pill' }, String(issues.length))),
-            btn('Fix file', () => post({ type: 'fixFile', uri: f.uri }), { title: 'Fix every issue in this file with one AI request', aria: 'Fix all issues in ' + f.relPath + ' with AI' })),
-          body));
-      }
-      if (!shown) list.append(el('p', { class: 'empty' }, data.files.length ? 'No issues match the filter.' : 'No issues yet. Scan a file, some files, or the whole project.'));
+  // Page and category selectors, shared by the Issues and Fixes tabs.
+  function pageFilters(withCategory) {
+    const pageSel = el('select', { id: 'page', onchange: (e) => { ui.page = e.target.value; persist(); render(); } });
+    const activeName = data.activeUri ? baseName(pageLabel(data.activeUri)) : 'none open';
+    pageSel.append(el('option', { value: 'current', selected: ui.page === 'current' }, 'Current page (' + activeName + ')'));
+    pageSel.append(el('option', { value: 'all', selected: ui.page === 'all' }, 'All pages (' + data.files.filter(f => f.issues.length).length + ')'));
+    for (const f of data.files) if (f.issues.length) pageSel.append(el('option', { value: f.uri, selected: ui.page === f.uri }, f.relPath + ' (' + f.issues.length + ')'));
+    const row = el('div', { class: 'filters' },
+      el('div', { class: 'field-inline' }, el('label', { for: 'page' }, 'Page'), pageSel));
+    if (withCategory) {
+      const cat = el('select', { id: 'category', onchange: (e) => { ui.category = e.target.value; persist(); render(); } });
+      cat.append(el('option', { value: 'all', selected: ui.category === 'all' }, 'All categories'));
+      for (const c of data.categories) cat.append(el('option', { value: c, selected: ui.category === c }, c));
+      row.append(el('div', { class: 'field-inline' }, el('label', { for: 'category' }, 'Category'), cat),
+        el('div', { class: 'field-inline grow' }, el('label', { for: 'filter' }, 'Search'),
+          el('input', { id: 'filter', type: 'search', placeholder: 'Problem, rule or file', value: ui.filter, oninput: (e) => { ui.filter = e.target.value; persist(); renderIssueList(); } })));
     }
-    renderList();
+    return row;
+  }
+
+  // ---------------------------------------------------------------------------------- issues
+  let issueList = null, issueCountLine = null;
+  function issuesView() {
+    const wrap = el('div', { role: 'tabpanel', id: 'panel-issues', 'aria-labelledby': 'tab-issues', tabindex: '-1' });
+    wrap.append(pageFilters(true));
+    issueCountLine = el('p', { class: 'result-count', role: 'status', 'aria-live': 'polite' });
+    issueList = el('div', { class: 'list' });
+    wrap.append(issueCountLine, issueList);
+    renderIssueList();
     return wrap;
+  }
+
+  function issueRow(f, it, fixFor) {
+    const p = fixFor.get(f.uri + '|' + it.ruleId + '|' + it.line);
+    return el('li', { class: 'issue' },
+      el('div', { class: 'issue-main' },
+        sevDot(it.severity),
+        el('div', { class: 'issue-text' },
+          el('button', { type: 'button', class: 'link-btn title', onclick: () => post({ type: 'open', uri: f.uri, line: it.line }), title: 'Go to line ' + it.line },
+            it.title, el('span', { class: 'sr-only' }, ', line ' + it.line + '. Go to code')),
+          el('p', { class: 'muted small' }, it.impact || it.what)),
+        el('span', { class: 'line-no', 'aria-hidden': 'true' }, 'L' + it.line),
+        p ? btn('Review fix', () => { ui.tab = 'fixes'; ui.focus = p.id; persist(); render(); }, { kind: 'primary small', aria: 'Review fix for ' + it.title + ', line ' + it.line })
+          : btn('Fix', () => post({ type: 'fixIssue', uri: f.uri, index: it.index }), { kind: 'small', aria: 'Fix ' + it.title + ', line ' + it.line + ', with AI' })));
+  }
+
+  function renderIssueList() {
+    if (!issueList) return;
+    issueList.textContent = '';
+    const fixFor = new Map(data.proposals.filter(p => p.decision === 'pending').map(p => [p.uri + '|' + p.ruleId + '|' + p.line, p]));
+    const page = currentPage();
+    if (ui.page === 'current' && !data.activeUri) {
+      issueCountLine.textContent = '';
+      issueList.append(el('div', { class: 'empty' }, el('p', {}, 'Open a file to see its issues, or choose "All pages".'), btn('Show all pages', () => { ui.page = 'all'; persist(); render(); })));
+      return;
+    }
+    if (page && !data.files.some(f => f.uri === page)) {
+      issueCountLine.textContent = '';
+      issueList.append(el('div', { class: 'empty' }, el('p', {}, baseName(page) + ' has not been scanned yet.'), btn('Scan this file', () => post({ type: 'scanFile' }), { kind: 'primary' })));
+      return;
+    }
+    let total = 0, pages = 0;
+    const files = data.files.filter(f => pageMatches(f.uri));
+    for (const f of files) {
+      const issues = f.issues.filter(it => issueMatches(f, it));
+      if (!issues.length) continue;
+      total += issues.length; pages++;
+      const list = el('ul', { class: 'issues', 'aria-label': f.relPath });
+      for (const it of issues) list.append(issueRow(f, it, fixFor));
+      if (page) { issueList.append(list); continue; }
+      const open = !ui.collapsed[f.uri];
+      const headId = 'page-' + pages;
+      issueList.append(el('section', { class: 'page', 'aria-labelledby': headId },
+        el('div', { class: 'page-head' },
+          el('h2', { class: 'page-title', id: headId },
+            el('button', { type: 'button', class: 'disclosure', 'aria-expanded': String(open), onclick: () => { ui.collapsed[f.uri] = open; persist(); renderIssueList(); } },
+              el('span', { class: 'chev', 'aria-hidden': 'true' }, open ? '\u25be' : '\u25b8'), el('span', { class: 'path' }, f.relPath), el('span', { class: 'pill' }, String(issues.length)))),
+          btn('Open', () => post({ type: 'open', uri: f.uri, line: issues[0].line }), { kind: 'small', aria: 'Open ' + f.relPath }),
+          btn('Fix page', () => post({ type: 'fixFile', uri: f.uri }), { kind: 'small', aria: 'Fix all issues on ' + f.relPath + ' with AI' })),
+        open ? list : null));
+    }
+    const filtered = ui.category !== 'all' || ui.filter || SEV.some(([k]) => !ui.sev[k]);
+    issueCountLine.textContent = total ? total + ' issue' + (total === 1 ? '' : 's') + (page ? ' on this page' : ' on ' + pages + ' page' + (pages === 1 ? '' : 's')) + (filtered ? ' (filtered)' : '') : '';
+    if (!total) {
+      const scannedClean = page && data.files.some(f => f.uri === page && !f.issues.length);
+      issueList.append(el('div', { class: 'empty' },
+        el('p', {}, scannedClean ? '\u2713 No issues found on this page.' : filtered ? 'No issues match these filters.' : data.files.length ? 'No issues.' : 'Nothing scanned yet. Scan a file, some files, or the whole project.'),
+        filtered ? btn('Clear filters', () => { ui.category = 'all'; ui.filter = ''; ui.sev = { critical: true, warning: true, advisory: true }; persist(); render(); }) : null));
+    }
   }
 
   // ---------------------------------------------------------------------------------- fixes
@@ -263,16 +333,18 @@
   }
 
   function fixesView() {
-    const wrap = el('div', { role: 'tabpanel', id: 'panel-fixes', 'aria-labelledby': 'tab-fixes' });
-    const ready = data.proposals.filter(p => p.decision === 'pending' && p.status === 'fixed' && !p.hasInput && p.verification && p.verification.verified).length;
+    const wrap = el('div', { role: 'tabpanel', id: 'panel-fixes', 'aria-labelledby': 'tab-fixes', tabindex: '-1' });
+    wrap.append(pageFilters(false));
+    const inScope = data.proposals.filter(p => pageMatches(p.uri) && ui.sev[sevKey(p.severity)]);
+    const ready = inScope.filter(p => p.decision === 'pending' && p.status === 'fixed' && !p.hasInput && p.verification && p.verification.verified).length;
     const showSel = el('select', { id: 'show', onchange: (e) => { ui.show = e.target.value; persist(); render(); } });
     for (const [v, l] of [['pending', 'To review'], ['all', 'All, including done']]) showSel.append(el('option', { value: v, selected: ui.show === v }, l));
     wrap.append(el('div', { class: 'filters' },
-      el('label', { class: 'sr-only', for: 'show' }, 'Show'), showSel,
+      el('div', { class: 'field-inline' }, el('label', { for: 'show' }, 'Show'), showSel),
       btn('Apply all ready fixes (' + ready + ')', () => post({ type: 'acceptAllVerified' }), { kind: 'primary', disabled: !ready, title: 'Applies every fix marked Ready. Fixes that need your answer or a review are left for you.' })));
-    const list = data.proposals.filter(p => p.status !== 'covered' && (ui.show === 'all' || p.decision === 'pending'));
+    const list = inScope.filter(p => p.status !== 'covered' && (ui.show === 'all' || p.decision === 'pending'));
     if (!list.length) {
-      wrap.append(el('p', { class: 'empty' }, data.proposals.length ? 'Nothing left to review.' : 'No fixes yet. Use "Fix with AI" on an issue or a file, or "Fix all with AI".'));
+      wrap.append(el('div', { class: 'empty' }, el('p', {}, data.proposals.length ? 'Nothing left to review here.' : 'No fixes yet. Use "Fix" on an issue, or fix a whole page with AI.')));
       return wrap;
     }
     const order = { 'Needs your answer': 0, 'Ready': 1, 'Review carefully': 2 };
@@ -280,8 +352,10 @@
     for (const p of list) { if (!byFile.has(p.relPath)) byFile.set(p.relPath, []); byFile.get(p.relPath).push(p); }
     for (const [file, items] of byFile) {
       items.sort((a, b) => (order[statusOf(a).text] ?? 3) - (order[statusOf(b).text] ?? 3) || a.line - b.line);
-      wrap.append(el('h2', { class: 'file-title' }, file));
-      for (const p of items) wrap.append(fixCard(p));
+      const section = el('section', { class: 'page', 'aria-label': file });
+      section.append(el('h2', { class: currentPage() ? 'sr-only' : 'file-title' }, 'Fixes for ' + file));
+      for (const p of items) section.append(fixCard(p));
+      wrap.append(section);
     }
     return wrap;
   }
@@ -325,7 +399,7 @@
     const active = document.activeElement && document.activeElement.id;
     const caret = active && document.activeElement.selectionStart;
     app.textContent = '';
-    app.append(header(), toolbar(), tabs());
+    app.append(el('h1', { class: 'sr-only' }, 'AccessGen accessibility'), header(), toolbar(), tabs());
     app.append(ui.tab === 'fixes' ? fixesView() : ui.tab === 'settings' ? settingsView() : issuesView());
     if (ui.focus) {
       const card = document.getElementById('fix-' + ui.focus);

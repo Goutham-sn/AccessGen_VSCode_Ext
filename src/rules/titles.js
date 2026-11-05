@@ -34,6 +34,22 @@ const TITLES = {
   'motion-no-preference-check': ['Animation ignores the reduce-motion setting', 'Can cause dizziness or nausea for people sensitive to motion']
 };
 
+// Categories for filtering, in the order they are listed.
+const CATEGORIES = ['Images', 'Links', 'Forms', 'Buttons & keyboard', 'Structure', 'Tables', 'Media', 'Color & focus', 'Page'];
+const CATEGORY_OF = {
+  'img-alt-missing': 'Images', 'jsx-img-alt-missing': 'Images',
+  'anchor-no-text': 'Links', 'jsx-anchor-no-content': 'Links',
+  'input-label-missing': 'Forms', 'jsx-label-missing': 'Forms', 'select-no-label': 'Forms', 'form-missing-landmark': 'Forms', 'autofocus-used': 'Forms', 'jsx-autofocus-used': 'Forms',
+  'button-empty': 'Buttons & keyboard', 'div-used-as-button': 'Buttons & keyboard', 'jsx-onclick-no-keyboard': 'Buttons & keyboard', 'jsx-interactive-no-role': 'Buttons & keyboard',
+  'jsx-mouse-events-no-focus': 'Buttons & keyboard', 'positive-tabindex': 'Buttons & keyboard', 'jsx-tabindex-positive': 'Buttons & keyboard', 'jsx-aria-invalid-role': 'Buttons & keyboard',
+  'heading-hierarchy-skip': 'Structure', 'heading-empty': 'Structure', 'jsx-heading-empty': 'Structure', 'duplicate-id': 'Structure',
+  'table-missing-headers': 'Tables',
+  'media-missing-captions': 'Media', 'iframe-missing-title': 'Media',
+  'color-contrast-low': 'Color & focus', 'outline-removed': 'Color & focus', 'focus-visible-missing': 'Color & focus', 'motion-no-preference-check': 'Color & focus',
+  'html-missing-lang': 'Page'
+};
+const categoryOf = (ruleId) => CATEGORY_OF[ruleId] || 'Structure';
+
 function titleOf(ruleId) {
   return (TITLES[ruleId] && TITLES[ruleId][0]) || ruleId;
 }
@@ -41,4 +57,4 @@ function impactOf(ruleId) {
   return (TITLES[ruleId] && TITLES[ruleId][1]) || '';
 }
 
-module.exports = { TITLES, titleOf, impactOf };
+module.exports = { TITLES, titleOf, impactOf, CATEGORIES, categoryOf };
