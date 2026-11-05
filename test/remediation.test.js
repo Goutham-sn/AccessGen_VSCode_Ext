@@ -611,7 +611,8 @@ async function scenario(opts = {}) {
   check('nothing is persisted or sent: neither module touches fs, network or storage', [src, srcInline].map(t => banned.filter(b => t.includes(b))), [[], []]);
   check('the old silent path is gone: autoFix.js never calls applyEdit (or even builds a WorkspaceEdit)', ['applyEdit', 'WorkspaceEdit', 'require(\'vscode\')'].filter(t => src.includes(t)), []);
   const remDir = path.join(__dirname, '..', 'src', 'remediation');
-  check('the only applyEdit call in the remediation code is Accept in inlineDiff.js', fs.readdirSync(remDir).filter(f => fs.readFileSync(path.join(remDir, f), 'utf8').includes('applyEdit(')), ['inlineDiff.js']);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);
+  check('the only applyEdit call in the remediation code (including remediation/batch) is Accept in inlineDiff.js', walk(remDir).filter(f => fs.readFileSync(f, 'utf8').includes('applyEdit(')).map(f => path.relative(remDir, f)), ['inlineDiff.js']);
 
   // ============================================================== identity helpers
   console.log('\nstructural identity of a violation');

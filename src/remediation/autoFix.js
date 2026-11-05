@@ -256,6 +256,8 @@ function createAutoFixer({ inline, report: defaultReport } = {}) {
       //    mode, or (AI suggestions, which are not recomputed) the text under them moved.
       inline.reconcile(document, (e) => {
         if (e.kind === 'sync') return keepSync.has(e.id);
+        // Batch-remediation suggestions are keyed by their own ids; they stay while their text is unchanged.
+        if (e.kind === 'batch') return mode !== 'manual' && rangeText(sourceAtScan, e.range) === e.oldText;
         return currentIds.has(e.id) && mode === 'auto' && rangeText(sourceAtScan, e.range) === e.oldText;
       });
       inline.flush(document);

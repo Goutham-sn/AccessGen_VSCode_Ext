@@ -38,6 +38,40 @@ Hover over any highlighted code to see a detailed tooltip with:
 
 All violations also appear in the VS Code Problems panel (`Ctrl+Shift+M`) with the source label "AccessGen".
 
+### Scan a file, selected files, or the whole project
+
+AccessGen catches issues while you write code, before anything is deployed. Besides the live check of the open editor:
+
+- **AccessGen: Scan Current File** scans the active editor.
+- **AccessGen: Scan Selected Files…** opens a searchable multi-select list of every HTML, JSX, TSX and CSS file in the workspace. You can also select files or folders in the Explorer, right-click and choose it.
+- **AccessGen: Scan Entire Project** scans every HTML, JSX, TSX and CSS file (`node_modules`, `dist`, `build`, `out`, `.next`, `coverage` and `vendor` are skipped).
+
+Open files are scanned with their unsaved changes. Every result goes to the Problems panel and the AccessGen panel.
+
+### The AccessGen panel
+
+Click the AccessGen icon in the Activity Bar. The panel tracks everything in one place:
+
+- **Summary**: a 0-100 score (100 minus weighted issues per scanned file), critical / warning / advisory counts, and files with issues.
+- **Issues**: grouped by file, filterable by text and severity. Each issue has **Go to** and **Fix with AI**; each file has **Fix file** (one AI request for all of its issues).
+- **Fixes**: every proposed fix with its status (**Verified**, **Needs your input**, **Not verified** and why, **Likely false positive**, **Needs a manual fix**), the model's confidence, the remediation steps, how to test it, and the exact change as a diff. **Accept**, **Reject** or **Preview diff** (side-by-side diff editor) each one, or **Accept all verified** at once.
+- **Settings**: remediation mode, request strategy, AI provider and models, image sending, API key, WCAG level.
+- **Export report** writes a Markdown report: summary, issues by rule, and every issue per file with its WCAG criterion and fix status.
+
+The panel follows your VS Code theme and is itself keyboard and screen-reader accessible.
+
+### Suppressing a finding
+
+When you have checked that a finding does not apply, silence just that one with a comment in the file's own comment syntax (`<!-- -->`, `{/* */}`, `/* */`):
+
+```html
+<!-- accessgen-disable-next-line img-alt-missing -->
+<img src="spacer.gif">
+<img src="tracking.gif"> <!-- accessgen-disable-line -->
+```
+
+`accessgen-disable-file <rule-ids>` in the first 10 lines silences those rules for the whole file. Without rule ids every rule is silenced.
+
 ## Configuration
 
 ### accessgen.config.json
@@ -76,6 +110,9 @@ These settings are available in VS Code's `settings.json` under the `accessgen` 
 | `accessgen.aiModel` | string | `""` | Model to use; empty means the provider default (`gpt-4o-mini` / `claude-haiku-5-5`). Must belong to the selected provider |
 | `accessgen.remediationMode` | `"manual"` / `"hybrid"` / `"auto"` | `"manual"` | Who applies fixes. See [Remediation Modes](#remediation-modes) |
 | `accessgen.aiReviewDebounceMs` | number | `3000` | Quiet time before AI review runs in `auto` mode (the structural scan still uses `debounceMs`) |
+| `accessgen.aiRemediationStrategy` | `"batch"` / `"per-issue"` | `"batch"` | How AI fixes are requested. See [AI remediation in batches](#ai-remediation-in-batches) |
+| `accessgen.aiRemediationModel` | string | `""` | Model that writes batch fixes; empty means the provider's remediation default (`gpt-4.1` / `claude-opus-5-5`) |
+| `accessgen.aiSendImages` | boolean | `true` | Send local image files to the model when writing alt text |
 
 ### Trusted Components
 
@@ -152,10 +189,11 @@ Only the text of elements that already passed the deterministic checks and look 
 | AI-suggested link text (a quick fix you select) | the link's `href` (sanitised as above), the current link text if it has any, and a short snippet of nearby text (about 200 characters around the link) | the same as above |
 
 | Generic AI fix (**Suggest fix**, any rule without its own fix) | **source code**: the flagged range, the code around it (the enclosing element, JSX element or CSS rule, or, when that is too large, a few surrounding lines, at most about 1,200 characters), and the rule's own description of the problem and its WCAG criterion | the same as above |
+| Batch remediation (**Fix file**, **Fix all with AI**, proactive fixes in `auto` mode) | **source code**: the whole file for a file up to 24,000 characters, otherwise the code around each issue; the file's base name (no folders); the per-issue and file facts listed under [AI remediation in batches](#ai-remediation-in-batches); and the local image files that `<img>` elements display, unless `accessgen.aiSendImages` is off | your API key; other files (except the images it displays); remote URLs are never fetched |
 
 Elements that already fail a rule (missing alt, empty link, empty heading) are not sent for AI *review*; they are reported by the normal checks. (They are what an AI *fix* is asked about, with the data listed above.) Very descriptive text (for example, a long sentence-like alt text) is filtered out locally and not sent either.
 
-Sending is subject to the provider's own terms and data policy. Do not enable AI review for files whose alt text, link text, link destinations or headings must not leave your machine.
+Sending is subject to the provider's own terms and data policy. Do not enable AI features for files whose content must not leave your machine. Batch remediation sends whole files: the disclosure was updated for it (version 4), so everyone who accepted an earlier wording is asked again before the next request.
 
 ### Turning it on
 
@@ -190,6 +228,29 @@ Every rule that has no fix of its own (all of them except `outline-removed` and 
 - A suggestion is checked locally before you see it: it must differ from the existing code, leave the file parseable, and make the rule report fewer violations when its own check is run on the edited text. One that fails any of these is not offered.
 - It sends **source code**. Unlike AI review, this includes the flagged code and the code around it, so do not enable AI features for files that must not leave your machine. The disclosure was updated for this, so everyone who accepted the earlier wording is asked again before the next request.
 - In `remediationMode` `auto` these fixes are also requested proactively and shown as inline diffs, through exactly the cost controls and consent gates described under [AI-suggested fixes](#ai-suggested-fixes) (the debounce, at most 25 requests per run, one request per unchanged element). Their tier is `ai-suggested`: **never applied without Accept**, in any mode.
+
+### AI remediation in batches
+
+**Fix file**, **Fix all with AI** (panel, or **AccessGen: Fix All Issues in This File with AI** / **Fix All Scanned Issues with AI**) and, in `remediationMode` `auto`, the proactive fixes use batch remediation (`accessgen.aiRemediationStrategy` `"batch"`, the default):
+
+- **One request per file.** Every issue of a file goes to the model together (a file with more than 15 issues is split into groups of nearby issues; a reply cut off at the output limit is retried in smaller groups). The model sees how issues relate, and you pay for the file once instead of once per issue.
+- **Only new or changed issues are sent.** An answered issue is reused until its code changes, and accepting a fix next to it does not count as a change. A run is capped at 80 issues (25 for proactive runs); the rest wait for the next run.
+- **Rich, exact context**, gathered locally for each issue:
+  - expert guidance for that rule (for example: convert a clickable `<span>` to a native `<button>` rather than patching it with ARIA; turn the visible text next to an input into its `<label>`; mark icon elements `aria-hidden`);
+  - the flagged code and, for a file up to 24,000 characters, the whole file (otherwise the code around each issue: the element, its parent with the nearby text, the whole `<table>` or `<form>`, or the CSS rule);
+  - element facts: attributes, the computed accessible name, icon class names, SVG titles and child components (`<TrashIcon>`), event-handler code (`handleDelete(id)`), the visible text before a form control, the `href`, the nearest heading, the figcaption;
+  - file facts: ids in use (so a fix never creates a duplicate), the heading outline, the document language and a page text sample, imports and framework, indentation and line endings, and whether the project has an `sr-only` / `visually-hidden` utility or uses Tailwind;
+  - for contrast issues, the measured ratio, the required ratio (3:1 for large text) and **computed passing colors** that keep the original hue, verified against the background;
+  - for duplicate ids, every occurrence and every reference (`for`, `aria-labelledby`, `href="#…"`);
+  - for missing alt text, **the image itself** when it is a local file in the workspace (PNG, JPEG, GIF or WebP up to 3.75 MB, or SVG markup), so the model can describe what it actually shows. Turn this off with `accessgen.aiSendImages`.
+- **Structured answers.** For each issue the model returns a status (`fixed`, `needs-input`, `false-positive`, `cannot-fix`), a confidence, a summary, remediation steps, how to test, and exact search-and-replace edits. Structured output is enforced through the provider's JSON schema support.
+- **Never invented content.** When the evidence does not settle a text (who is in a photo, what an unlabeled button does), the model makes the structural fix with a `TODO(a11y):` placeholder and asks you, instead of guessing. Those fixes are marked **Needs your input** and are never part of **Accept all verified**.
+- **Verified locally before you see it.** Every edit must match the file exactly once, the edited file must still parse, the analyzer must report the issue as resolved, and **no other rule may report a new issue** (for example a duplicate id or a nested interactive element). Fixes that pass all four are marked **Verified**; others show the reason.
+- **Fixes appear in the panel and inline.** In `hybrid` and `auto` mode, verified single-span fixes are also shown inline in the editor with the usual Accept / Dismiss, and the two stay in sync. Nothing is applied without Accept, in any mode.
+
+`"per-issue"` keeps the earlier behaviour (one request per issue, with only the code around it) for proactive fixes in `auto` mode.
+
+The default remediation models are stronger than the review default because they write code: `claude-opus-5-5` for Anthropic (with high effort and Anthropic's server-side fallback when a request is declined) and `gpt-4.1` for OpenAI. Set `accessgen.aiRemediationModel` to use another model of the selected provider.
 
 ### Your API key
 
@@ -244,7 +305,7 @@ AccessGen includes 27 accessibility rules across HTML, JSX, and CSS.
 | Rule ID | Severity | WCAG | Description |
 |---|---|---|---|
 | `outline-removed` | Critical | 2.4.7 (AA) | Focus outlines must not be removed without replacement |
-| `color-contrast-low` | Warning | 1.4.3 (AA) | Text must meet 4.5:1 contrast ratio |
+| `color-contrast-low` | Warning | 1.4.3 (AA) | Text must meet 4.5:1 contrast ratio (3:1 for large text: 24px, or 18.66px bold) |
 | `motion-no-preference-check` | Advisory | 2.3.3 (AAA) | Animations need prefers-reduced-motion query |
 | `focus-visible-missing` | Warning | 2.4.7 (AA) | :focus rules should have :focus-visible equivalents |
 

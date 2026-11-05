@@ -18,9 +18,11 @@
 //   2  adds what an AI-suggested fix sends: the image file name and a short snippet of nearby text.
 //   3  adds the generic AI fix, which works for any rule: it sends the flagged SOURCE CODE and the code around it
 //      (the enclosing element or rule, or a few surrounding lines), plus the rule's own description of the problem.
+//   4  adds batch remediation: the WHOLE FILE being fixed (or, for a large file, the code regions around its issues),
+//      the file's base name, and the local image files an <img> displays (when accessgen.aiSendImages is on).
 
 const DISCLOSURE_KEY = 'accessgen.aiDisclosureDismissed';
-const AI_DISCLOSURE_VERSION = 3;
+const AI_DISCLOSURE_VERSION = 4;
 
 // What the stored value says, whatever shape it has. Never throws.
 //   true                              -> { dismissed: true,  version: 0 }   (legacy boolean)
@@ -53,8 +55,11 @@ function disclosureText(providerLabel) {
     'and for AI-suggested fixes also the image file name and a short snippet of nearby text ' +
     'or, for any other rule, the flagged source code with the code around it ' +
     '(the enclosing element, rule block or a few surrounding lines) and the description of the problem the rule reports ' +
-    '(and nothing else from the file) to a third-party AI provider, OpenAI or Anthropic ' +
-    '(currently ' + providerLabel + '). It is off unless you enable it.';
+    '(and nothing else from the file). ' +
+    'Fixing a whole file with AI sends that file\'s source code (for a large file, the code around each issue), its file name, ' +
+    'and the local image files its images display (unless accessgen.aiSendImages is off). ' +
+    'All of this goes to a third-party AI provider, OpenAI or Anthropic ' +
+    '(currently ' + providerLabel + '). Nothing is sent unless you enable AI features.';
 }
 
 module.exports = { DISCLOSURE_KEY, AI_DISCLOSURE_VERSION, readDisclosure, isDisclosureCurrent, disclosureRecord, disclosureText };

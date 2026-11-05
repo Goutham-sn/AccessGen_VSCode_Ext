@@ -49,9 +49,16 @@ const { createStatusBar, updateStatusBar, showToggleNotification } = safeRequire
 const aiReview = safeRequire('./judgment/aiReview');
 const { createAutoFixer } = safeRequire('./remediation/autoFix');
 const { createInlineDiff } = safeRequire('./remediation/inlineDiff');
-const { secretKeyFor, PROVIDERS, getApiKey, providerName, resolveModel } = safeRequire('./judgment/providers');
+const providers = safeRequire('./judgment/providers');
+const { secretKeyFor, PROVIDERS, getApiKey, providerName, resolveModel } = providers;
 const { createAiFixer } = safeRequire('./judgment/aiFixer');
 const disclosure = safeRequire('./judgment/disclosure');
+const { createRemediationEngine, matchKeysFor } = safeRequire('./remediation/batch/engine');
+const { createIssueStore } = safeRequire('./panel/issueStore');
+const { createFixController } = safeRequire('./panel/fixController');
+const { createPanelProvider } = safeRequire('./panel/panelProvider');
+const workspaceScan = safeRequire('./workspaceScan');
+const { buildReport } = safeRequire('./report');
 
 let debounceTimer = null;
 let statusBarItem = null;
@@ -62,11 +69,14 @@ let autoFixChannel = null;
 const warnedNoKey = new Set(); // providers we've already told the user about (auto mode nags once)
 const aiTimers = new Map();    // filePath -> pending auto-review timer (see scheduleAutoReview)
 const aiFixTimers = new Map(); // filePath -> pending proactive AI-fix timer (see scheduleAiFix)
+const batchTimers = new Map(); // filePath -> pending proactive batch-remediation timer (see scheduleBatchFix)
 let inlineDiffRef = null;      // the inline-diff instance of this activation (disposed in deactivate)
 
 function cancelPendingAiFixes() {
   for (const t of aiFixTimers.values()) clearTimeout(t);
   aiFixTimers.clear();
+  for (const t of batchTimers.values()) clearTimeout(t);
+  batchTimers.clear();
 }
 
 function cancelPendingAiReviews() {
@@ -414,6 +424,280 @@ function activate(context) {
       }
     }
 
+    // ---- batch remediation, scan scopes and the side panel --------------------------------------
+    // All issues of a file go to the model in ONE request (split only when large), with rich local context, and every
+    // answer is verified locally before it is shown. Proposals live in the issue store; the panel and the inline diff
+    // both review them, and nothing is applied without Accept. Same consent gates as every other AI feature.
+    const store = createIssueStore();
+    const engine = createRemediationEngine({
+      requestFix: (request, cfg) => providers.remediate(request, cfg),
+      salt: (cfg) => providerName(cfg) + '/' + providers.resolveRemediationModel(cfg)
+    });
+    let projectFacts = null; // collected once per session, on the first batch run
+    const fileKeyOfUri = (uri) => uri.fsPath || uri.toString();
+
+    function recordScan(uri, languageId, source, violations) {
+      store.setFile(uri.toString(), { filePath: fileKeyOfUri(uri), languageId, violations, source: violations.length ? source : null, issueKeys: matchKeysFor(source, violations) });
+    }
+
+    const analyzeForScan = (document) => analyzeDocument(document, { ...getConfig(), isRuleDisabled, isTrustedComponent });
+
+    async function rescanUri(uri) {
+      await workspaceScan.scanUris([uri], {
+        analyze: analyzeForScan,
+        onResult: (r) => { updateDiagnostics(r.document, r.violations); recordScan(r.uri, r.languageId, r.source, r.violations); }
+      });
+    }
+
+    const controller = createFixController({ store, rescan: (uri) => rescanUri(uri) });
+    try { controller.register(context); } catch (e) { console.error('AccessGen: could not register the fix preview:', e && e.message ? e.message : e); }
+
+    // Batch fixes shown inline too (single-range ones): the inline Accept / Dismiss and the panel stay in sync.
+    function syncInline(proposals, document) {
+      if (!document) return;
+      for (const p of proposals) {
+        if (p.decision !== 'pending' || p.status !== 'fixed' || !p.verification || !p.verification.verified || !p.ranges || p.ranges.length !== 1) continue;
+        const r = p.ranges[0];
+        const start = document.positionAt(r.start), end = document.positionAt(r.end);
+        const range = { startLine: start.line, startChar: start.character, endLine: end.line, endChar: end.character };
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(document.uri, new vscode.Range(start, end), r.newText);
+        inlineDiff.propose({
+          document, id: p.id, slot: p.id, ruleId: p.ruleId, tier: 'ai-suggested', kind: 'batch',
+          built: { edit, newText: r.newText, range }, oldText: r.oldText,
+          detail: 'verified, confidence ' + Math.round(p.confidence * 100) + '%: ' + (p.summary || '')
+        });
+      }
+      inlineDiff.flush(document);
+    }
+    const syncDecision = (decision) => (rec) => {
+      const p = store.getProposal(rec.id);
+      if (p && p.decision === 'pending') {
+        store.decide(rec.id, decision);
+        if (decision === 'accepted') rescanUri(vscode.Uri.parse(p.uri)).catch(() => {});
+      }
+    };
+    inlineDiff.on('accepted', syncDecision('accepted'));
+    inlineDiff.on('rejected', syncDecision('rejected'));
+    store.onChange(() => {
+      // A proposal decided in the panel must disappear from the inline diff as well.
+      for (const p of store.listProposals()) {
+        if (p.decision !== 'pending' && inlineDiff.has(p.file, p.id)) {
+          inlineDiff.remove(p.file, p.id);
+          const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === p.uri);
+          if (doc) inlineDiff.flush(doc);
+        }
+      }
+    });
+
+    async function ensureAiOn() {
+      if (getConfig().aiReviewMode !== 'off') return true;
+      const pick = await vscode.window.showInformationMessage(
+        'AccessGen: AI features are off, so nothing can be sent for remediation. Turn them on (on request only)?',
+        'Turn on', 'Cancel');
+      if (pick !== 'Turn on') return false;
+      await vscode.workspace.getConfiguration('accessgen').update('aiReviewMode', 'manual', vscode.ConfigurationTarget.Global);
+      reloadConfig();
+      return getConfig().aiReviewMode !== 'off';
+    }
+
+    // files: [{ uri, languageId, source, violations }]. opts.quiet: proactive (auto mode) run, no progress UI or pop-ups.
+    async function runBatch(files, opts = {}) {
+      const quiet = !!opts.quiet;
+      const live = getConfig();
+      const cfg = { ...live, isRuleDisabled, isTrustedComponent, secrets: context.secrets };
+      if (!projectFacts) projectFacts = await workspaceScan.collectProjectFacts();
+      const work = files.filter(f => f.violations && f.violations.length);
+      if (!work.length) {
+        if (!quiet) vscode.window.showInformationMessage('AccessGen: no issues to fix.');
+        return null;
+      }
+      const go = async (progress, token) => engine.remediate({
+        files: work.map(f => ({ filePath: fileKeyOfUri(f.uri), languageId: f.languageId, source: f.source, violations: f.violations, uri: f.uri })),
+        config: cfg,
+        gates: { hasKey: getApiKey, confirm: confirmFirstSend },
+        readAssetFor: live.aiSendImages ? (filePath) => workspaceScan.assetReaderFor(filePath) : null,
+        projectFacts,
+        maxIssues: opts.maxIssues,
+        retryUnresolved: !quiet,
+        onProgress: (msg) => { if (progress) progress.report({ message: msg }); },
+        isCancelled: () => !!(token && token.isCancellationRequested)
+      });
+      const out = quiet ? await go(null, null) : await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'AccessGen', cancellable: true },
+        (progress, token) => go(progress, token));
+
+      if (out.stopped === 'no-key') { notifyNoApiKey(providerName(cfg), !quiet); return out; }
+      if (out.stopped === 'declined') return out;
+      const byUri = new Map(work.map(f => [fileKeyOfUri(f.uri), f.uri]));
+      const groups = new Map();
+      for (const p of out.proposals) {
+        const uri = byUri.get(p.file);
+        if (!uri) continue;
+        if (!groups.has(uri.toString())) groups.set(uri.toString(), []);
+        groups.get(uri.toString()).push(p);
+      }
+      for (const [uri, list] of groups) {
+        store.addProposals(uri, list);
+        const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri);
+        if (doc && live.remediationMode !== 'manual') syncInline(store.listProposals().filter(p => p.uri === uri), doc);
+      }
+      const verified = out.proposals.filter(p => p.status === 'fixed' && p.verification && p.verification.verified).length;
+      const channel = getAiChannel();
+      channel.appendLine('batch remediation (' + providerName(cfg) + '/' + providers.resolveRemediationModel(cfg) + '): ' + out.proposals.length + ' answers, ' + verified + ' verified, ' +
+        out.requests + ' request' + (out.requests === 1 ? '' : 's') + ', ' + out.cached + ' from cache' + (out.deferred ? ', ' + out.deferred + ' deferred (per-run limit)' : '') + (out.stopped ? ', stopped: ' + out.stopped : ''));
+      for (const e of out.errors) channel.appendLine('  error in ' + require('path').basename(e.file) + ': ' + e.message);
+      if (!quiet) {
+        const msg = 'AccessGen: ' + out.proposals.length + ' fix' + (out.proposals.length === 1 ? '' : 'es') + ' proposed (' + verified + ' verified) with ' +
+          out.requests + ' AI request' + (out.requests === 1 ? '' : 's') + (out.cached ? ' (' + out.cached + ' reused)' : '') + (out.errors.length ? '; ' + out.errors.length + ' failed (see the AI Review output)' : '') + '.';
+        vscode.window.showInformationMessage(msg, 'Review fixes').then((pick) => { if (pick) vscode.commands.executeCommand('accessgen.panel.focus'); }, () => {});
+      }
+      return out;
+    }
+
+    async function filesForBatch(uriStrings) {
+      const out = [];
+      const targets = uriStrings ? store.listFiles().filter(f => uriStrings.includes(f.uri)) : store.listFiles();
+      for (const f of targets) {
+        if (!f.violations.length) continue;
+        const uri = vscode.Uri.parse(f.uri);
+        const read = await workspaceScan.readSource(uri);
+        if (typeof read.text !== 'string') continue;
+        // Re-analyse the current text so the fixes describe exactly what is in the file now.
+        const violations = await analyzeForScan(read.document || workspaceScan.documentShim(uri, read.text, f.languageId));
+        recordScan(uri, f.languageId, read.text, violations);
+        out.push({ uri, languageId: f.languageId, source: read.text, violations });
+      }
+      return out;
+    }
+
+    async function fixFiles(uriStrings) {
+      if (!(await ensureAiOn())) return;
+      await runBatch(await filesForBatch(uriStrings));
+    }
+
+    async function fixIssue(uriString, index) {
+      if (!(await ensureAiOn())) return;
+      const f = store.getFile(uriString);
+      const v = f && f.violations[index];
+      if (!v) return;
+      const [file] = await filesForBatch([uriString]);
+      if (!file) return;
+      const same = file.violations.filter(x => x.ruleId === v.ruleId && x.startLine === v.startLine && x.startChar === v.startChar);
+      await runBatch([{ ...file, violations: same.length ? same : [v] }]);
+    }
+
+    async function scanWithProgress(uris, title) {
+      let result;
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
+        result = await workspaceScan.scanUris(uris, {
+          analyze: analyzeForScan, progress, token,
+          onResult: (r) => { updateDiagnostics(r.document, r.violations); recordScan(r.uri, r.languageId, r.source, r.violations); }
+        });
+      });
+      const s = store.summary();
+      vscode.window.showInformationMessage('AccessGen: scanned ' + result.scanned + ' file' + (result.scanned === 1 ? '' : 's') + (result.cancelled ? ' (cancelled)' : '') + '. ' + s.issues + ' issue' + (s.issues === 1 ? '' : 's') + ' in ' + s.filesWithIssues + ' file' + (s.filesWithIssues === 1 ? '' : 's') + '.', 'Open panel')
+        .then((pick) => { if (pick) vscode.commands.executeCommand('accessgen.panel.focus'); }, () => {});
+      return result;
+    }
+
+    async function scanActive() {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !workspaceScan.languageOf(editor.document.uri) && !['html', 'javascriptreact', 'typescriptreact', 'css'].includes(editor.document.languageId)) {
+        vscode.window.showInformationMessage('AccessGen: open an HTML, JSX, TSX or CSS file to scan it.');
+        return;
+      }
+      const document = editor.document;
+      const violations = await analyzeForScan(document);
+      updateDiagnostics(document, violations);
+      applyHighlights(editor, violations);
+      recordScan(document.uri, document.languageId, document.getText(), violations);
+      vscode.commands.executeCommand('accessgen.panel.focus');
+    }
+
+    async function scanSelected(uris) {
+      const picked = uris && uris.length ? uris : await workspaceScan.pickFiles();
+      if (!picked) return;
+      const files = [];
+      for (const u of picked) {
+        let stat;
+        try { stat = await vscode.workspace.fs.stat(u); } catch (e) { continue; }
+        if (stat.type & vscode.FileType.Directory) {
+          const inside = await vscode.workspace.findFiles(new vscode.RelativePattern(u, '**/*.{html,htm,jsx,tsx,css}'), '**/{node_modules,dist,build,out,.git,.next}/**', 5000);
+          files.push(...inside);
+        } else files.push(u);
+      }
+      await scanWithProgress(files, 'AccessGen: scanning ' + files.length + ' file' + (files.length === 1 ? '' : 's'));
+    }
+
+    async function scanWorkspace() {
+      const uris = await workspaceScan.findCandidateFiles();
+      if (!uris.length) { vscode.window.showInformationMessage('AccessGen: no HTML, JSX, TSX or CSS files found in this workspace.'); return; }
+      await scanWithProgress(uris, 'AccessGen: scanning project (' + uris.length + ' files)');
+    }
+
+    // Proactive batch fixes in remediationMode 'auto' (strategy 'batch'): one request per changed file, on the AI debounce,
+    // only issues that are new or changed are sent (the engine cache), at most 25 per run.
+    function scheduleBatchFix(job) {
+      const previous = batchTimers.get(job.filePath);
+      if (previous) clearTimeout(previous);
+      batchTimers.set(job.filePath, setTimeout(() => {
+        batchTimers.delete(job.filePath);
+        const live = getConfig();
+        if (!enabled || live.remediationMode !== 'auto' || live.aiReviewMode === 'off' || live.aiRemediationStrategy !== 'batch') return;
+        if (job.document.getText() !== job.sourceCode) return; // typed meanwhile: the next scan schedules again
+        runBatch([{ uri: job.document.uri, languageId: job.lang, source: job.sourceCode, violations: job.violations }], { quiet: true, maxIssues: 25 })
+          .catch((e) => console.error('AccessGen: batch fix (auto) error:', e && e.message ? e.message : e));
+      }, getConfig().aiReviewDebounceMs));
+    }
+
+    const relPathOf = (uriString) => { try { return workspaceScan.relPath(vscode.Uri.parse(uriString)); } catch (e) { return uriString; } };
+    const panel = createPanelProvider({
+      extensionUri: () => context.extensionUri || vscode.Uri.file(context.extensionPath || require('path').join(__dirname, '..')),
+      store, controller, getConfig, relPath: relPathOf,
+      actions: {
+        scanActive, scanSelected: () => scanSelected(), scanWorkspace, fixFiles, fixIssue,
+        remediationModel: () => providers.resolveRemediationModel(getConfig()),
+        async open(uriString, line) {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriString));
+          const pos = new vscode.Position(Math.max(0, line - 1), 0);
+          await vscode.window.showTextDocument(doc, { selection: new vscode.Range(pos, pos), preview: false });
+        }
+      }
+    });
+    try { panel.register(context); } catch (e) { console.error('AccessGen: could not register the panel:', e && e.message ? e.message : e); }
+
+    async function exportReport() {
+      const folders = vscode.workspace.workspaceFolders;
+      const target = await vscode.window.showSaveDialog({
+        defaultUri: folders && folders.length ? vscode.Uri.joinPath(folders[0].uri, 'accessgen-report.md') : undefined,
+        filters: { Markdown: ['md'] }, title: 'AccessGen: export accessibility report'
+      });
+      if (!target) return;
+      await vscode.workspace.fs.writeFile(target, Buffer.from(buildReport({ store, relPath: relPathOf }), 'utf8'));
+      const doc = await vscode.workspace.openTextDocument(target);
+      await vscode.window.showTextDocument(doc, { preview: false });
+    }
+
+    const activeFileForFix = () => {
+      const editor = vscode.window.activeTextEditor;
+      return editor ? editor.document.uri.toString() : null;
+    };
+    context.subscriptions.push(
+      vscode.commands.registerCommand('accessgen.scanFile', () => scanActive()),
+      vscode.commands.registerCommand('accessgen.scanFiles', (uri, uris) => scanSelected(Array.isArray(uris) && uris.length ? uris : uri ? [uri] : undefined)),
+      vscode.commands.registerCommand('accessgen.scanWorkspace', () => scanWorkspace()),
+      vscode.commands.registerCommand('accessgen.fixFileWithAI', async () => {
+        const uri = activeFileForFix();
+        if (!uri) return;
+        if (!store.getFile(uri)) await scanActive();
+        await fixFiles([uri]);
+      }),
+      vscode.commands.registerCommand('accessgen.fixAllWithAI', () => fixFiles(null)),
+      vscode.commands.registerCommand('accessgen.acceptAllVerifiedFixes', () => controller.acceptAllVerified()),
+      vscode.commands.registerCommand('accessgen.exportReport', () => exportReport())
+    );
+
     let lastAiMode = getConfig().aiReviewMode;
 
     function runAnalysis(editor) {
@@ -473,6 +757,7 @@ function activate(context) {
         }
         lastIssueCount = violations.length;
         updateStatusBar(statusBarItem, enabled, violations.length);
+        try { recordScan(document.uri, lang, sourceAtScan, violations); } catch (e) { console.error('AccessGen: issue store error:', e && e.message ? e.message : e); }
 
         // Suggested fixes: skipped entirely in 'manual' mode (the default), where nothing is suggested
         // and any leftover suggestion is cleared. Runs after diagnostics are published, on the document
@@ -493,8 +778,11 @@ function activate(context) {
 
         // Proactive AI fixes: remediationMode 'auto' only, and never while AI features are off. Scheduled on
         // the AI debounce, not run inline; it cannot reject back into the scan.
+        // Strategy 'batch' (the default) sends every new or changed issue of the file in one request; 'per-issue' keeps
+        // the older one-request-per-issue path.
         if (currentConfig.remediationMode === 'auto' && currentConfig.aiReviewMode !== 'off') {
-          scheduleAiFix({ document, sourceCode: sourceAtScan, lang, violations, filePath });
+          if (currentConfig.aiRemediationStrategy === 'per-issue') scheduleAiFix({ document, sourceCode: sourceAtScan, lang, violations, filePath });
+          else scheduleBatchFix({ document, sourceCode: sourceAtScan, lang, violations, filePath });
         }
 
         // AI review: skipped entirely unless mode is 'auto'. Never runs inline; it is scheduled

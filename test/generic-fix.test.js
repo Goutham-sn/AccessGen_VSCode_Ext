@@ -181,7 +181,7 @@ async function scenario(opts = {}) {
     disclosure = 'dismissed', modalMode, modalChoice, respond, remediationMode, patch, aiDebounce = 60000 } = opts;
   freshModules();
   const st = state; // this scenario's own recorder: helpers below must not follow the global `state` to a later scenario
-  settings = { debounceMs: 20, aiReviewDebounceMs: aiDebounce, aiReviewMode: mode, ...(provider ? { aiProvider: provider } : {}), ...(remediationMode ? { remediationMode } : {}) };
+  settings = { debounceMs: 20, aiReviewDebounceMs: aiDebounce, aiReviewMode: mode, aiRemediationStrategy: 'per-issue', ...(provider ? { aiProvider: provider } : {}), ...(remediationMode ? { remediationMode } : {}) };
   state.modalMode = modalMode || 'resolve'; state.modalChoice = modalChoice;
   const httpMod = require('../src/judgment/providers/http');
   httpMod.postJson = async (url, headers, body) => {
@@ -341,7 +341,7 @@ const textAfter = (sc, action) => applyEditToText(sc.doc.text, action.edit);
     const call = sp.state.httpCalls[0];
     check(provider + ': returns { suggestedText, confidence, reasoning }', [r.suggestedText, r.confidence, typeof r.reasoning], ['<html lang="en">', 0.9, 'string']);
     check(provider + ': right endpoint, key only in the auth header, strict JSON requested where the API supports it', [call.url, /sk-test-GENERIC/.test(JSON.stringify(call.body)), provider === 'openai' ? call.body.response_format.type : call.headers['anthropic-version'] !== undefined], [provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://api.anthropic.com/v1/messages', false, provider === 'openai' ? 'json_object' : true]);
-    check(provider + ': a larger output allowance than alt text (a replacement is code), deterministic', [call.body.max_tokens > 300, call.body.temperature], [true, 0]);
+    check(provider + ': a larger output allowance than alt text (a replacement is code); temperature 0 only where the API accepts it (current Claude models reject sampling parameters)', [call.body.max_tokens > 300, call.body.temperature], [true, provider === 'openai' ? 0 : undefined]);
     let code = null;
     try { await generateGenericFix(violation, PAGE, { aiProvider: provider, secrets: { get: async () => '' } }); } catch (e) { code = e.code; }
     check(provider + ': no key -> NO_API_KEY and no further request', [code, sp.state.httpCalls.length], ['NO_API_KEY', 1]);

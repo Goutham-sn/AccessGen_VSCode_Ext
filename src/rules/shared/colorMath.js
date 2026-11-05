@@ -70,4 +70,29 @@ function getContrastRatio(lum1, lum2) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-module.exports = { NAMED_COLORS, hexToRgb, parseColor, getLuminance, getContrastRatio };
+function contrastOf(a, b) {
+  return getContrastRatio(getLuminance(a.r, a.g, a.b), getLuminance(b.r, b.g, b.b));
+}
+
+function toHex({ r, g, b }) {
+  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+}
+
+// The closest colors to `fg` (mixing toward black and toward white, so the hue is kept) that reach `target`
+// contrast against `bg`. Each result is re-checked, so it is safe to hand over as an exact value.
+// -> [{ hex, ratio, direction: 'darker' | 'lighter' }], nearest first; [] when neither direction can reach it.
+function suggestPassingColors(fg, bg, target) {
+  const out = [];
+  for (const [toward, direction] of [[{ r: 0, g: 0, b: 0 }, 'darker'], [{ r: 255, g: 255, b: 255 }, 'lighter']]) {
+    for (let step = 1; step <= 100; step++) {
+      const t = step / 100;
+      const c = { r: fg.r + (toward.r - fg.r) * t, g: fg.g + (toward.g - fg.g) * t, b: fg.b + (toward.b - fg.b) * t };
+      const rounded = hexToRgb(toHex(c));
+      const ratio = contrastOf(rounded, bg);
+      if (ratio >= target + 0.02) { out.push({ hex: toHex(rounded), ratio: Math.floor(ratio * 100) / 100, direction, distance: step }); break; }
+    }
+  }
+  return out.sort((a, b) => a.distance - b.distance).map(({ hex, ratio, direction }) => ({ hex, ratio, direction }));
+}
+
+module.exports = { NAMED_COLORS, hexToRgb, parseColor, getLuminance, getContrastRatio, contrastOf, toHex, suggestPassingColors };

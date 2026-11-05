@@ -159,5 +159,6 @@ module.exports = {
   VERDICTS, MIN_CONFIDENCE, MAX_CONFIDENCE, MAX_REASONING_CHARS, KIND_CONFIDENCE_CEILING,
   MAX_OUTPUT_TOKENS, MAX_GENERIC_OUTPUT_TOKENS, REQUEST_TIMEOUT_MS,
   MAX_SUGGESTION_CHARS, MAX_GENERIC_CHARS,
-  parseJudgment, parseSuggestion, parseGenericSuggestion, redact, throwForStatus
+  parseJudgment, parseSuggestion, parseGenericSuggestion, redact, throwForStatus, extractObject,
+  REMEDIATION_TIMEOUT_MS: 240000, REMEDIATION_MAX_BYTES: 8 * 1024 * 1024
 };

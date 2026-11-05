@@ -95,4 +95,19 @@ async function generateGenericFix(violation, sourceCode, config) {
   return provider.generateGeneric({ request, apiKey, model, postJson });
 }
 
-module.exports = { judgeContent, generateFix, generateGenericFix, getApiKey, secretKeyFor, resolveModel, providerName, PROVIDERS, DEFAULT_PROVIDER };
+// The model used for batch remediation: accessgen.aiRemediationModel, else the provider's REMEDIATION_MODEL (a stronger
+// model than the review default, because it writes code for many issues at once).
+function resolveRemediationModel(config) {
+  const provider = PROVIDERS[providerName(config)];
+  const configured = config && typeof config.aiRemediationModel === 'string' ? config.aiRemediationModel.trim() : '';
+  return configured || (provider ? provider.REMEDIATION_MODEL || provider.DEFAULT_MODEL : '');
+}
+
+// Batch remediation request (remediation/batch/prompt.js). Same key / transport plumbing; callers apply the consent
+// gates first. -> the parsed reply object.
+async function remediate(request, config) {
+  const { provider, apiKey, postJson } = await resolveRequest(config);
+  return provider.remediate({ request, apiKey, model: resolveRemediationModel(config), postJson });
+}
+
+module.exports = { judgeContent, generateFix, generateGenericFix, remediate, resolveRemediationModel, getApiKey, secretKeyFor, resolveModel, providerName, PROVIDERS, DEFAULT_PROVIDER };

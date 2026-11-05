@@ -170,6 +170,8 @@ const SYSTEM_PROMPT_GENERIC_FIX = [
 function buildGenericFixPrompt(req) {
   const m = req.message || {};
   const lang = { html: 'HTML', jsx: 'JSX/TSX', css: 'CSS' }[req.language] || String(req.language || '');
+  // The same expert per-rule guidance batch remediation uses (lazy: avoids a load-order cycle).
+  const { guideFor } = require('../remediation/batch/guidance');
   return {
     system: SYSTEM_PROMPT_GENERIC_FIX,
     user: [
@@ -179,6 +181,8 @@ function buildGenericFixPrompt(req) {
       'What is wrong: ' + JSON.stringify(clip(m.what || '', 600)),
       'Why it matters: ' + JSON.stringify(clip(m.why || '', 600)),
       'Linter hint on how to fix it: ' + JSON.stringify(clip(m.fix || '', 600)),
+      'How an accessibility engineer fixes this rule correctly (apply what fits inside the flagged range; prefer native HTML over ARIA; never invent text the context does not support):',
+      ...guideFor(req.ruleId).guidance.map(g => '  ' + g),
       '',
       'Flagged code (the range to replace): ' + JSON.stringify(clip(req.flagged || '', MAX_GENERIC_FLAGGED)),
       'Surrounding code for context only, ' + (req.contextKind || 'context') + ' (do not repeat it in suggestedText): ' + JSON.stringify(clip(req.context || '', MAX_GENERIC_CONTEXT))

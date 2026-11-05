@@ -179,7 +179,7 @@ async function scenario(opts = {}) {
     disclosure = 'dismissed', modalMode, modalChoice, respond, remediationMode, patch, aiDebounce = 60000 } = opts;
   freshModules();
   const st = state; // this scenario's own recorder: helpers below must not follow the global `state` to a later scenario
-  settings = { debounceMs: 20, aiReviewDebounceMs: aiDebounce, aiReviewMode: mode, ...(provider ? { aiProvider: provider } : {}), ...(remediationMode ? { remediationMode } : {}) };
+  settings = { debounceMs: 20, aiReviewDebounceMs: aiDebounce, aiReviewMode: mode, aiRemediationStrategy: 'per-issue', ...(provider ? { aiProvider: provider } : {}), ...(remediationMode ? { remediationMode } : {}) };
   state.modalMode = modalMode || 'resolve'; state.modalChoice = modalChoice;
   const httpMod = require('../src/judgment/providers/http');
   httpMod.postJson = async (url, headers, body) => {
@@ -706,7 +706,7 @@ async function scenario(opts = {}) {
   check('README still lists the original what-leaves-the-machine rows', ['| Alt text |', '| Link text |', '| Heading text |'].filter(t => !readme.includes(t)), []);
   check('README is consistently CRLF like the rest of the repo', readme.split('\n').filter(l => l.length && !l.endsWith('\r')).length, 0);
   const pk = require('../package.json');
-  check('no new setting was needed for AI fixes, and the only fix-named commands are the two inline-diff Accept / Dismiss commands', [Object.keys(pk.contributes.configuration.properties).filter(k => /fix/i.test(k)), pk.contributes.commands.filter(x => /fix/i.test(x.command)).map(x => x.command)], [[], ['accessgen.acceptInlineFix', 'accessgen.rejectInlineFix']]);
+  check('no fix-named setting, and the fix-named commands are the inline-diff Accept / Dismiss plus the batch-remediation commands', [Object.keys(pk.contributes.configuration.properties).filter(k => /fix/i.test(k)), pk.contributes.commands.filter(x => /fix/i.test(x.command)).map(x => x.command)], [[], ['accessgen.acceptInlineFix', 'accessgen.rejectInlineFix', 'accessgen.fixFileWithAI', 'accessgen.fixAllWithAI', 'accessgen.acceptAllVerifiedFixes']]);
 
   console.log(`\n${total - failed}/${total} passed`);
   process.exit(failed ? 1 : 0);

@@ -138,7 +138,7 @@ const fakeEditor = (text = HTML) => ({
   check('aiReviewMode default is off', ai.default, 'off');
   check('aiReviewMode type', ai.type, 'string');
   check('reviewWithAI command contributed', pkg.contributes.commands.some(c => c.command === 'accessgen.reviewWithAI'), true);
-  check('pre-existing settings untouched', Object.keys(props).filter(k => !['accessgen.aiReviewMode', 'accessgen.aiProvider', 'accessgen.aiModel', 'accessgen.aiReviewDebounceMs', 'accessgen.remediationMode'].includes(k)).sort(),
+  check('pre-existing settings untouched', Object.keys(props).filter(k => !['accessgen.aiReviewMode', 'accessgen.aiProvider', 'accessgen.aiModel', 'accessgen.aiReviewDebounceMs', 'accessgen.remediationMode', 'accessgen.aiRemediationModel', 'accessgen.aiRemediationStrategy', 'accessgen.aiSendImages'].includes(k)).sort(),
     ['accessgen.complianceLevel', 'accessgen.debounceMs', 'accessgen.enabled', 'accessgen.showTooltips', 'accessgen.stateScope', 'accessgen.trustedComponents']);
   check('pre-existing defaults untouched', [props['accessgen.complianceLevel'].default, props['accessgen.debounceMs'].default, props['accessgen.enabled'].default, props['accessgen.stateScope'].default],
     ['AA', 800, true, 'global']);
@@ -146,7 +146,7 @@ const fakeEditor = (text = HTML) => ({
   check('aiModel is free text, empty default (= provider default)', [props['accessgen.aiModel'].type, props['accessgen.aiModel'].default, props['accessgen.aiModel'].enum], ['string', '', undefined]);
   check('no setting can hold an API key', Object.keys(props).filter(k => /key|secret|token|password/i.test(k)), []);
   check('setAiApiKey command contributed', pkg.contributes.commands.some(c => c.command === 'accessgen.setAiApiKey'), true);
-  check('pre-existing commands untouched', pkg.contributes.commands.map(c => c.command).filter(c => !['accessgen.reviewWithAI', 'accessgen.setAiApiKey', 'accessgen.clearAiApiKey', 'accessgen.acceptInlineFix', 'accessgen.rejectInlineFix'].includes(c)),
+  check('pre-existing commands untouched', pkg.contributes.commands.map(c => c.command).filter(c => !['accessgen.reviewWithAI', 'accessgen.setAiApiKey', 'accessgen.clearAiApiKey', 'accessgen.acceptInlineFix', 'accessgen.rejectInlineFix', 'accessgen.scanFile', 'accessgen.scanFiles', 'accessgen.scanWorkspace', 'accessgen.fixFileWithAI', 'accessgen.fixAllWithAI', 'accessgen.acceptAllVerifiedFixes', 'accessgen.exportReport'].includes(c)),
     ['accessgen.toggle', 'accessgen.enable', 'accessgen.disable', 'accessgen.showStatus']);
 
   // ------------------------------------------------------------------ config.js
@@ -260,7 +260,7 @@ const fakeEditor = (text = HTML) => ({
   console.log('\nextension.js: mode "off" (default) is a no-op');
   const off = await scenario(undefined);
   check('all commands registered', Object.keys(off.state.commands).sort(),
-    ['accessgen.acceptInlineFix', 'accessgen.clearAiApiKey', 'accessgen.disable', 'accessgen.enable', 'accessgen.rejectInlineFix', 'accessgen.reviewWithAI', 'accessgen.setAiApiKey', 'accessgen.showStatus', 'accessgen.toggle']);
+    ['accessgen.acceptAllVerifiedFixes', 'accessgen.acceptInlineFix', 'accessgen.clearAiApiKey', 'accessgen.disable', 'accessgen.enable', 'accessgen.exportReport', 'accessgen.fixAllWithAI', 'accessgen.fixFileWithAI', 'accessgen.rejectInlineFix', 'accessgen.reviewWithAI', 'accessgen.scanFile', 'accessgen.scanFiles', 'accessgen.scanWorkspace', 'accessgen.setAiApiKey', 'accessgen.showStatus', 'accessgen.toggle']);
   check('scan produced diagnostics (the normal path ran)', off.state.diagnostics.length >= 1 && off.state.diagnostics[off.state.diagnostics.length - 1].length > 0, true);
   check('auto step never called', off.calls.auto, 0);
   check('manual step never called', off.calls.manual, 0);

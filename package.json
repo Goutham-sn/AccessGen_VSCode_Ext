@@ -2,7 +2,7 @@
   "name": "accessgen",
   "displayName": "AccessGen",
   "description": "Inline accessibility linter for HTML, JSX, TSX, and CSS",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -11,6 +11,9 @@
     "Other"
   ],
   "main": "./src/extension.js",
+  "scripts": {
+    "test": "node test/run-all.js"
+  },
   "activationEvents": [
     "onLanguage:html",
     "onLanguage:javascriptreact",
@@ -55,6 +58,38 @@
       {
         "command": "accessgen.rejectInlineFix",
         "title": "AccessGen: Dismiss Suggested Fix"
+      },
+      {
+        "command": "accessgen.scanFile",
+        "title": "AccessGen: Scan Current File",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "accessgen.scanFiles",
+        "title": "AccessGen: Scan Selected Files…",
+        "icon": "$(files)"
+      },
+      {
+        "command": "accessgen.scanWorkspace",
+        "title": "AccessGen: Scan Entire Project",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "accessgen.fixFileWithAI",
+        "title": "AccessGen: Fix All Issues in This File with AI"
+      },
+      {
+        "command": "accessgen.fixAllWithAI",
+        "title": "AccessGen: Fix All Scanned Issues with AI"
+      },
+      {
+        "command": "accessgen.acceptAllVerifiedFixes",
+        "title": "AccessGen: Accept All Verified Fixes"
+      },
+      {
+        "command": "accessgen.exportReport",
+        "title": "AccessGen: Export Accessibility Report",
+        "icon": "$(export)"
       }
     ],
     "keybindings": [
@@ -79,6 +114,40 @@
         {
           "command": "accessgen.toggle",
           "group": "accessgen"
+        },
+        {
+          "command": "accessgen.fixFileWithAI",
+          "group": "accessgen",
+          "when": "editorLangId =~ /^(html|css|javascriptreact|typescriptreact)$/"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "accessgen.scanFiles",
+          "group": "accessgen",
+          "when": "resourceExtname =~ /\\.(html?|jsx|tsx|css)$/ || explorerResourceIsFolder"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "accessgen.scanFile",
+          "when": "view == accessgen.panel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "accessgen.scanFiles",
+          "when": "view == accessgen.panel",
+          "group": "navigation@2"
+        },
+        {
+          "command": "accessgen.scanWorkspace",
+          "when": "view == accessgen.panel",
+          "group": "navigation@3"
+        },
+        {
+          "command": "accessgen.exportReport",
+          "when": "view == accessgen.panel",
+          "group": "navigation@4"
         }
       ]
     },
@@ -180,8 +249,50 @@
             "Fixes tagged \"safe\" or \"medium\" are suggested inline after a scan. AI-written fixes are also requested proactively (only while AI features are on, through the AI review cost controls) and shown inline."
           ],
           "description": "Who proposes fixes. Nothing is ever applied without your Accept: automatic fixes are shown inline (old text struck through, new text after it, with Accept fix / Dismiss above the line). A fix is only ever suggested automatically if its rule has explicitly tagged it with a fixTier (\"safe\" or \"medium\"); untagged fixes are always manual quick fixes, in every mode. Applies to the open document only, after the normal debounce. Fixes written by an AI provider (tier \"ai-suggested\") are requested proactively only in \"auto\" mode and only while accessgen.aiReviewMode is not \"off\"; in every other mode they are lazy quick fixes you select."
+        },
+        "accessgen.aiRemediationStrategy": {
+          "type": "string",
+          "enum": [
+            "batch",
+            "per-issue"
+          ],
+          "default": "batch",
+          "enumDescriptions": [
+            "All issues of a file go to the AI in one request (split only for large files), with the whole file and rich context. Cheaper and more accurate.",
+            "One request per issue, each with only the code around it (the original behaviour)."
+          ],
+          "description": "How AI fixes are requested in remediationMode \"auto\" and from the AccessGen panel. Only new or changed issues are ever sent; unchanged ones reuse the earlier answer."
+        },
+        "accessgen.aiRemediationModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model used to write batch fixes. Leave empty for the provider default (openai: gpt-4.1, anthropic: claude-opus-5-5), which is stronger than the review default because it writes code. Must be a model of the selected aiProvider."
+        },
+        "accessgen.aiSendImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "When writing alt text, send the image file itself (local PNG, JPEG, GIF, WebP up to 3.75 MB, or SVG markup) so the model can see what it shows. Only files inside the workspace are read; remote and data: URLs are never fetched."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "accessgen",
+          "title": "AccessGen",
+          "icon": "media/accessgen.svg"
+        }
+      ]
+    },
+    "views": {
+      "accessgen": [
+        {
+          "type": "webview",
+          "id": "accessgen.panel",
+          "name": "Accessibility",
+          "contextualTitle": "AccessGen"
+        }
+      ]
     }
   },
   "dependencies": {

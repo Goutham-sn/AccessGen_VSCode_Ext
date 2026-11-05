@@ -23,7 +23,8 @@ const D = require('../src/judgment/disclosure');
 // bumped (so everyone who acknowledged the old wording is asked again) and the new fingerprint added here.
 const FINGERPRINTS = {
   2: '39a9499e4cdb866c7dcc565f754d4c6a864e1931',
-  3: '013f0a5d8208cc28bac48fbe206f1c05f150a1bc'
+  3: '013f0a5d8208cc28bac48fbe206f1c05f150a1bc',
+  4: 'ab10971fcb0cc81b02c2332cbe146355eeac0d62'
 };
 const fingerprint = (text) => crypto.createHash('sha1').update(text).digest('hex');
 
@@ -186,7 +187,7 @@ async function scenario({ stored, sharedData, noGlobalState, mode = 'manual', mo
   check('it never throws, whatever it is given', [undefined, null, NaN, Symbol('x'), () => {}, { get dismissed() { throw new Error('x'); } }].map(v => { try { D.readDisclosure(v); return 'ok'; } catch (e) { return 'threw'; } }), ['ok', 'ok', 'ok', 'ok', 'ok', 'threw']);
 
   console.log('\nisDisclosureCurrent');
-  check('the key is unchanged and the version was bumped past the legacy value', [D.DISCLOSURE_KEY, D.AI_DISCLOSURE_VERSION, D.AI_DISCLOSURE_VERSION > 0], [KEY, 3, true]);
+  check('the key is unchanged and the version was bumped past the legacy value', [D.DISCLOSURE_KEY, D.AI_DISCLOSURE_VERSION, D.AI_DISCLOSURE_VERSION > 0], [KEY, 4, true]);
   check('legacy true: NOT current (asked again)', D.isDisclosureCurrent(true), false);
   check('version 0 and 1: NOT current', [D.isDisclosureCurrent({ dismissed: true, version: 0 }), D.isDisclosureCurrent({ dismissed: true, version: 1 })], [false, false]);
   check('the current version: current', D.isDisclosureCurrent(D.disclosureRecord()), true);
@@ -212,7 +213,7 @@ async function scenario({ stored, sharedData, noGlobalState, mode = 'manual', mo
   lg.state.modalResolvers[0]('OK');
   await lgReview;
   check('OK: the send happens', lg.state.httpCalls.length > 0, true);
-  check('...and the flag is UPGRADED in place to the current versioned record (one write, same key)', [lg.globalState.updates, lg.stored()], [[[KEY, { dismissed: true, version: 3 }]], { dismissed: true, version: 3 }]);
+  check('...and the flag is UPGRADED in place to the current versioned record (one write, same key)', [lg.globalState.updates, lg.stored()], [[[KEY, { dismissed: true, version: 4 }]], { dismissed: true, version: 4 }]);
   const callsAfterFirst = lg.state.httpCalls.length;
   lg.doc.text = HTML.replace('Leadership', 'Our leaders');
   await lg.review();
@@ -236,29 +237,29 @@ async function scenario({ stored, sharedData, noGlobalState, mode = 'manual', mo
   check('selecting an AI-suggested fix with a legacy flag opens the dialog; nothing is sent meanwhile', [lf.state.modals.length, lf.state.httpCalls.length, lfAct.edit], [1, 0, undefined]);
   lf.state.modalResolvers[0]('OK');
   await lfPending;
-  check('OK: the suggestion is made and the flag upgraded', [lf.state.httpCalls.length, !!lfAct.edit, lf.stored()], [1, true, { dismissed: true, version: 3 }]);
+  check('OK: the suggestion is made and the flag upgraded', [lf.state.httpCalls.length, !!lfAct.edit, lf.stored()], [1, true, { dismissed: true, version: 4 }]);
   await lf.review();
   check('a judgment review afterwards asks nothing more (one shared acknowledgement)', lf.state.modals.length, 1);
 
   console.log('\nolder versioned records behave like the legacy flag');
   const v1 = await scenario({ stored: { dismissed: true, version: 1 }, modalChoice: 'OK' });
   await v1.review();
-  check('version 1 re-prompts and is upgraded to the current version', [v1.state.modals.length, v1.stored()], [1, { dismissed: true, version: 3 }]);
+  check('version 1 re-prompts and is upgraded to the current version', [v1.state.modals.length, v1.stored()], [1, { dismissed: true, version: 4 }]);
   const v2 = await scenario({ stored: { dismissed: true, version: 2 }, modalChoice: 'OK' });
   await v2.review();
-  check('version 2 (acknowledged before the generic AI fix sent source code) re-prompts and is upgraded', [v2.state.modals.length, v2.stored()], [1, { dismissed: true, version: 3 }]);
+  check('version 2 (acknowledged before the generic AI fix sent source code) re-prompts and is upgraded', [v2.state.modals.length, v2.stored()], [1, { dismissed: true, version: 4 }]);
   check('...and the new wording says what the generic fix sends', ['flagged source code', 'enclosing element', 'description of the problem'].filter(t => !v2.state.modals[0].message.includes(t)), []);
   const v0 = await scenario({ stored: { dismissed: true }, modalChoice: 'OK' });
   await v0.review();
-  check('a record with no version re-prompts (version 0)', [v0.state.modals.length, v0.stored()], [1, { dismissed: true, version: 3 }]);
-  for (const [label, bad] of [['the string "true"', 'true'], ['{ dismissed: "true" }', { dismissed: 'true', version: 3 }], ['an array', [true]], ['a number', 1]]) {
+  check('a record with no version re-prompts (version 0)', [v0.state.modals.length, v0.stored()], [1, { dismissed: true, version: 4 }]);
+  for (const [label, bad] of [['the string "true"', 'true'], ['{ dismissed: "true" }', { dismissed: 'true', version: 4 }], ['an array', [true]], ['a number', 1]]) {
     const m = await scenario({ stored: bad, modalChoice: 'OK' });
     await m.review();
-    check('a malformed stored value (' + label + ') is treated as never acknowledged', [m.state.modals.length, m.stored()], [1, { dismissed: true, version: 3 }]);
+    check('a malformed stored value (' + label + ') is treated as never acknowledged', [m.state.modals.length, m.stored()], [1, { dismissed: true, version: 4 }]);
   }
 
   console.log('\nthe current version, or a later one, is never asked again');
-  const cur = await scenario({ stored: { dismissed: true, version: 3 }, modalChoice: undefined });
+  const cur = await scenario({ stored: { dismissed: true, version: 4 }, modalChoice: undefined });
   await cur.review();
   const curAct = cur.imgAction();
   await cur.resolve(curAct);
@@ -279,22 +280,22 @@ async function scenario({ stored, sharedData, noGlobalState, mode = 'manual', mo
   cn.state.toastMode = 'pending'; // the notice shown on switching back on is left unanswered, so it cannot acknowledge for us
   await cn.switchMode('manual');
   await cn.review();
-  check('turning AI review back on later asks again, and OK upgrades the flag', [cn.state.modals.length, cn.stored()], [2, { dismissed: true, version: 3 }]);
+  check('turning AI review back on later asks again, and OK upgrades the flag', [cn.state.modals.length, cn.stored()], [2, { dismissed: true, version: 4 }]);
 
   console.log('\nthe informational notices use the same version');
   const nt = await scenario({ stored: true, mode: 'off' });
   await nt.switchMode('manual');
   check('legacy flag: switching AI review on shows the notice again', [nt.state.toasts.length, nt.state.toasts[0] && nt.state.toasts[0].buttons], [1, ['OK', 'Learn more']]);
-  check('...with the current wording, and the flag is upgraded', [nt.state.toasts[0].message === D.disclosureText('OpenAI'), nt.stored()], [true, { dismissed: true, version: 3 }]);
+  check('...with the current wording, and the flag is upgraded', [nt.state.toasts[0].message === D.disclosureText('OpenAI'), nt.stored()], [true, { dismissed: true, version: 4 }]);
   await nt.switchMode('off'); await nt.switchMode('manual');
   check('...and then not again', nt.state.toasts.length, 1);
-  const nc = await scenario({ stored: { dismissed: true, version: 3 }, mode: 'off' });
+  const nc = await scenario({ stored: { dismissed: true, version: 4 }, mode: 'off' });
   await nc.switchMode('manual');
   check('current flag: switching AI review on shows no notice', nc.state.toasts.length, 0);
   const nk = await scenario({ stored: true });
   await nk.state.commands['accessgen.setAiApiKey']();
   await wait(40);
-  check('setAiApiKey with a legacy flag shows the notice once', [nk.state.toasts.length, nk.stored()], [1, { dismissed: true, version: 3 }]);
+  check('setAiApiKey with a legacy flag shows the notice once', [nk.state.toasts.length, nk.stored()], [1, { dismissed: true, version: 4 }]);
   await nk.state.commands['accessgen.setAiApiKey']();
   await wait(40);
   check('...and not on the next run', nk.state.toasts.length, 1);

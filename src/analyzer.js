@@ -119,11 +119,48 @@ async function analyzeDocument(document, config) {
       }
     }
 
-    return violations;
+    return applySuppressions(sourceCode, violations);
   } catch (e) {
     console.error('AccessGen: Analysis failed:', e.message);
     return [];
   }
+}
+
+// Inline suppression comments, in any comment syntax of the file (<!-- -->, {/* */}, /* */, //):
+//   accessgen-disable-file [rule ...]       anywhere in the first 10 lines: the whole file
+//   accessgen-disable-next-line [rule ...]  the line after the comment
+//   accessgen-disable-line [rule ...]       the comment's own line
+// With no rule ids every rule is suppressed; ids are separated by spaces or commas.
+const SUPPRESS = /accessgen-disable-(file|next-line|line)\b([^\n]*)/g;
+
+function suppressedRules(tail) {
+  const ids = (tail.replace(/(-->|\*\/|\}).*$/, '').match(/[a-z][a-z0-9-]*/g) || []).filter(id => id.includes('-'));
+  return ids.length ? new Set(ids) : null; // null = all rules
+}
+
+function applySuppressions(sourceCode, violations) {
+  if (!violations.length || !sourceCode.includes('accessgen-disable')) return violations;
+  const lines = sourceCode.split(/\r\n|\r|\n/);
+  const byLine = new Map(); // line -> Set | null (all)
+  let fileRules;            // undefined = none, null = all, Set = those rules
+  const add = (line, rules) => {
+    if (byLine.has(line) && byLine.get(line) === null) return;
+    if (rules === null) { byLine.set(line, null); return; }
+    const prev = byLine.get(line);
+    byLine.set(line, prev ? new Set([...prev, ...rules]) : rules);
+  };
+  lines.forEach((text, i) => {
+    SUPPRESS.lastIndex = 0;
+    let m;
+    while ((m = SUPPRESS.exec(text))) {
+      const rules = suppressedRules(m[2]);
+      if (m[1] === 'file' && i < 10) fileRules = rules === null ? null : new Set([...(fileRules || []), ...rules]);
+      else if (m[1] === 'next-line') add(i + 1, rules);
+      else if (m[1] === 'line') add(i, rules);
+    }
+  });
+  const hit = (rules, id) => rules === null || (rules && rules.has(id));
+  return violations.filter(v => !(fileRules !== undefined && hit(fileRules, v.ruleId)) && !(byLine.has(v.startLine) && hit(byLine.get(v.startLine), v.ruleId)));
 }
 
 function getRuleById(ruleId) {
@@ -131,4 +168,8 @@ function getRuleById(ruleId) {
   return all.find(r => r.id === ruleId) || null;
 }
 
-module.exports = { analyzeDocument, getRuleById, shouldRunAtLevel };
+function allRules() {
+  return [...getHtmlRules(), ...getJsxRules(), ...getCssRules()];
+}
+
+module.exports = { analyzeDocument, getRuleById, shouldRunAtLevel, applySuppressions, allRules };

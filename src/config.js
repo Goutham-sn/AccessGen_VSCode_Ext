@@ -17,6 +17,11 @@ function validRemediationMode(value) {
   return REMEDIATION_MODES.includes(value) ? value : null;
 }
 
+// How AI fixes are requested: 'batch' (all issues of a file in one request) or 'per-issue'.
+function validStrategy(value) {
+  return value === 'batch' || value === 'per-issue' ? value : null;
+}
+
 // A delay in milliseconds: a finite number >= 0, otherwise the default.
 function validDelay(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -59,6 +64,9 @@ function loadConfig() {
     aiProvider: validAiProvider(fileConfig && fileConfig.aiProvider) ||
       validAiProvider(wsConfig.get('aiProvider', 'openai')) || 'openai',
     aiModel: cleanModel(fileConfig && fileConfig.aiModel) || cleanModel(wsConfig.get('aiModel', '')) || '',
+    aiRemediationModel: cleanModel(fileConfig && fileConfig.aiRemediationModel) || cleanModel(wsConfig.get('aiRemediationModel', '')) || '',
+    aiRemediationStrategy: validStrategy(fileConfig && fileConfig.aiRemediationStrategy) || validStrategy(wsConfig.get('aiRemediationStrategy', 'batch')) || 'batch',
+    aiSendImages: typeof (fileConfig && fileConfig.aiSendImages) === 'boolean' ? fileConfig.aiSendImages : wsConfig.get('aiSendImages', true) !== false,
     disabledRules: (fileConfig && fileConfig.disabledRules) || [],
     languages: (fileConfig && fileConfig.languages) || ['html', 'jsx', 'tsx', 'css'],
     enabled: wsConfig.get('enabled', true),
