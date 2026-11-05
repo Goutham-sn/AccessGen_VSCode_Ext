@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AccessGen Test File</title>
+</head>
+<body>
+
+  <!-- img-alt-missing: no alt attribute -->
+  <img src="photo.jpg">
+
+  <!-- valid: decorative image with empty alt -->
+  <img src="logo.png" alt="">
+
+  <!-- input-label-missing: no label for this input -->
+  <label for="name"></label><input type="text" id="name">
+
+  <!-- button-empty: empty button -->
+  <button></button>
+
+  <!-- anchor-no-text: generic link text -->
+  <a href="#">Click here</a>
+
+  <!-- anchor-no-text: empty anchor -->
+  <a href="/about"></a>
+
+  <!-- heading-hierarchy-skip: h1 followed by h3 -->
+  <h1>Welcome</h1>
+  <h2>Subsection Skipping h2</h2>Subsection Skipping h2</h3>
+
+  <!-- div-used-as-button: div with onclick and no role/tabindex -->
+  <div onclick="doSomething()">Click me</div>
+
+  <!-- form-missing-landmark: form with no accessible name -->
+  <form>
+    <input type="text" id="email" aria-label="Email">
+    <button type="submit"></button>
+  </form>
+
+  <!-- select-no-label: select with no label -->
+  <select id="country">
+    <option value="us">United States</option>
+    <option value="uk">United Kingdom</option>
+  </select>
+
+  <!-- table-missing-headers: table with no th elements -->
+  <table>
+    <tr>
+      <td>Alice</td>
+      <td>30</td>
+    </tr>
+    <tr>
+      <td>Bob</td>
+      <td>25</td>
+    </tr>
+  </table>
+
+  <!-- iframe-missing-title: iframe with no title -->
+  <iframe src="payment.html"></iframe>
+
+  <!-- duplicate-id: two elements share id="main" -->
+  <div id="main">First main</div>
+  <div id="main">Second main (duplicate)</div>
+
+  <!-- positive-tabindex: positive tabindex value -->
+  <input tabindex="3">
+
+  <!-- autofocus-used: autofocus attribute -->
+  <input autofocus>
+
+  <!-- media-missing-captions: video with no track -->
+  <video src="intro.mp4"></video>
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+/* outline-removed: focus outline removed with no replacement */
+button:focus {
+  outline: none;
+}
+
+/* color-contrast-low: low contrast text */
+.text {
+  color: #aaaaaa;
+  background-color: #ffffff;
+}
+
+/* motion-no-preference-check: animation with no prefers-reduced-motion */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.loader {
+  animation: spin 1s linear infinite;
+}
+
+/* focus-visible-missing: :focus defined but no :focus-visible */
+a:focus {
+  color: blue;
+}

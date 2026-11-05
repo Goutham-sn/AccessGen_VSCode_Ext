@@ -1,0 +1,8 @@
+a { color: blue; }
+
+button:focus-visible {
+  background-color: #1a1a2e;
+  outline: none;
+}
+
+.keep { margin: 0; }

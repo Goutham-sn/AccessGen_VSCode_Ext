@@ -1,0 +1,7 @@
+a { color: blue; }
+
+button:focus-visible {
+  outline: none;
+}
+
+.keep { margin: 0; }

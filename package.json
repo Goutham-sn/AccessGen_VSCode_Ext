@@ -1,0 +1,195 @@
+{
+  "name": "accessgen",
+  "displayName": "AccessGen",
+  "description": "Inline accessibility linter for HTML, JSX, TSX, and CSS",
+  "version": "0.2.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:html",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescriptreact",
+    "onLanguage:css",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "accessgen.toggle",
+        "title": "AccessGen: Toggle On/Off"
+      },
+      {
+        "command": "accessgen.enable",
+        "title": "AccessGen: Turn On"
+      },
+      {
+        "command": "accessgen.disable",
+        "title": "AccessGen: Turn Off"
+      },
+      {
+        "command": "accessgen.showStatus",
+        "title": "AccessGen: Show Current Status"
+      },
+      {
+        "command": "accessgen.reviewWithAI",
+        "title": "AccessGen: Review with AI"
+      },
+      {
+        "command": "accessgen.setAiApiKey",
+        "title": "AccessGen: Set AI API Key"
+      },
+      {
+        "command": "accessgen.clearAiApiKey",
+        "title": "AccessGen: Clear AI API Key"
+      },
+      {
+        "command": "accessgen.acceptInlineFix",
+        "title": "AccessGen: Accept Suggested Fix"
+      },
+      {
+        "command": "accessgen.rejectInlineFix",
+        "title": "AccessGen: Dismiss Suggested Fix"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "accessgen.toggle",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "accessgen.acceptInlineFix",
+          "when": "false"
+        },
+        {
+          "command": "accessgen.rejectInlineFix",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "accessgen.toggle",
+          "group": "accessgen"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AccessGen",
+      "properties": {
+        "accessgen.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable AccessGen accessibility linting"
+        },
+        "accessgen.complianceLevel": {
+          "type": "string",
+          "enum": [
+            "A",
+            "AA",
+            "AAA"
+          ],
+          "default": "AA",
+          "description": "WCAG compliance level to check against"
+        },
+        "accessgen.showTooltips": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show detailed tooltips on hover over flagged elements"
+        },
+        "accessgen.debounceMs": {
+          "type": "number",
+          "default": 800,
+          "description": "Debounce delay in milliseconds before running analysis"
+        },
+        "accessgen.stateScope": {
+          "type": "string",
+          "enum": [
+            "global",
+            "workspace"
+          ],
+          "default": "global",
+          "description": "Scope for the enabled/disabled state"
+        },
+        "accessgen.trustedComponents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of trusted component names to skip during analysis"
+        },
+        "accessgen.aiReviewMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "manual",
+            "auto"
+          ],
+          "default": "off",
+          "enumDescriptions": [
+            "No AI review. Scans behave exactly as before.",
+            "AI review runs only when you run \"AccessGen: Review with AI\".",
+            "AI review also runs automatically after each scan."
+          ],
+          "description": "When to send accessibility content that passes the deterministic checks (alt text, link text, heading text) to the configured AI provider for review. \"off\" sends nothing. \"manual\" reviews only when you run \"AccessGen: Review with AI\". \"auto\" also reviews new or changed content after each scan. The flagged text and minimal context are sent to the provider; your API key is set with \"AccessGen: Set AI API Key\"."
+        },
+        "accessgen.aiProvider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic"
+          ],
+          "default": "openai",
+          "enumDescriptions": [
+            "OpenAI Chat Completions API.",
+            "Anthropic Messages API."
+          ],
+          "description": "Which provider performs AI review (used when aiReviewMode is \"manual\" or \"auto\"). API keys are stored in VS Code secret storage via \"AccessGen: Set AI API Key\", never in settings."
+        },
+        "accessgen.aiModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model used for AI review. Leave empty for the provider default (openai: gpt-4o-mini, anthropic: claude-haiku-5-5). Must be a model of the selected aiProvider."
+        },
+        "accessgen.aiReviewDebounceMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 0,
+          "description": "How long, in milliseconds, the file must stay unchanged before AI review runs in \"auto\" mode. Deliberately longer than debounceMs: the structural scan still runs on debounceMs, but paid AI calls wait for you to stop typing."
+        },
+        "accessgen.remediationMode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "hybrid",
+            "auto"
+          ],
+          "default": "manual",
+          "enumDescriptions": [
+            "Fixes are offered as quick fixes only. Nothing is suggested automatically.",
+            "Fixes tagged \"safe\" are suggested inline after a scan (Accept or Dismiss). \"medium\" and AI fixes stay quick fixes.",
+            "Fixes tagged \"safe\" or \"medium\" are suggested inline after a scan. AI-written fixes are also requested proactively (only while AI features are on, through the AI review cost controls) and shown inline."
+          ],
+          "description": "Who proposes fixes. Nothing is ever applied without your Accept: automatic fixes are shown inline (old text struck through, new text after it, with Accept fix / Dismiss above the line). A fix is only ever suggested automatically if its rule has explicitly tagged it with a fixTier (\"safe\" or \"medium\"); untagged fixes are always manual quick fixes, in every mode. Applies to the open document only, after the normal debounce. Fixes written by an AI provider (tier \"ai-suggested\") are requested proactively only in \"auto\" mode and only while accessgen.aiReviewMode is not \"off\"; in every other mode they are lazy quick fixes you select."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "parse5": "^7.1.2",
+    "@babel/parser": "^7.23.0",
+    "postcss": "^8.4.31"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0"
+  }
+}

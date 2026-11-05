@@ -1,0 +1,6 @@
+{
+  "complianceLevel": "AA",
+  "trustedComponents": ["Button", "Modal", "Input", "Icon", "FormField", "Link"],
+  "disabledRules": [],
+  "languages": ["html", "jsx", "tsx", "css"]
+}

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessible Page</title>
+</head>
+<body>
+
+  <header>
+    <h1>Accessible Page Example</h1>
+    <nav aria-label="Main navigation">
+      <a href="/home">Home</a>
+      <a href="/about">About our team</a>
+      <a href="/contact">Contact us</a>
+    </nav>
+  </header>
+
+  <main id="content">
+    <h2>Welcome Section</h2>
+    <p>This is a clean, accessible HTML file with no violations.</p>
+
+    <img src="team.jpg" alt="Our team gathered for a group photo at the annual meetup">
+    <img src="decorative-line.png" alt="">
+
+    <h3>Contact Form</h3>
+    <form aria-label="Contact form">
+      <label for="full-name">Full Name</label>
+      <input type="text" id="full-name">
+
+      <label for="user-email">Email Address</label>
+      <input type="email" id="user-email">
+
+      <label for="user-country">Country</label>
+      <select id="user-country">
+        <option value="us">United States</option>
+        <option value="uk">United Kingdom</option>
+        <option value="ca">Canada</option>
+      </select>
+
+      <button type="submit">Send Message</button>
+      <input type="hidden" name="csrf" value="token123">
+    </form>
+
+    <h3>Data Table</h3>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Age</th>
+          <th scope="col">Role</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Alice</th>
+          <td>30</td>
+          <td>Developer</td>
+        </tr>
+        <tr>
+          <th scope="row">Bob</th>
+          <td>25</td>
+          <td>Designer</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Media</h3>
+    <video src="intro.mp4">
+      <track kind="captions" src="captions.vtt" srclang="en" label="English">
+    </video>
+
+    <iframe title="Payment processing form" src="payment.html"></iframe>
+
+    <button aria-label="Close dialog">X</button>
+  </main>
+
+  <footer id="page-footer">
+    <p>Copyright 2026 Accessible Corp.</p>
+  </footer>
+
+</body>
+</html>
