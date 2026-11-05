@@ -124,4 +124,16 @@ async function verifyFix({ source, languageId, ruleId, edits, ranges, near, anal
   return res;
 }
 
-module.exports = { locate, locateEdits, applyRanges, verifyFix, makeAnalyzer, parsesNoWorse, toEol };
+// Fills the {{INPUT}} slot of a fix with the developer's text. The text is made safe for every place a slot can be
+// (an HTML/JSX attribute value or element text): one line, at most 150 characters, markup characters escaped and
+// JSX braces removed, so it can never change the structure of the code.
+const INPUT = '{{INPUT}}';
+function cleanInput(value) {
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, 150)
+    .replace(/[{}]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function fillInput(text, value) {
+  return String(text).split(INPUT).join(cleanInput(value));
+}
+
+module.exports = { locate, locateEdits, applyRanges, verifyFix, makeAnalyzer, parsesNoWorse, toEol, fillInput, cleanInput };

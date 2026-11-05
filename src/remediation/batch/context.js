@@ -157,17 +157,53 @@ function closestAncestor(n, tags) {
   return null;
 }
 
-// Visible text right before a control inside its parent (the usual place of an unassociated label).
-function htmlPrecedingText(n) {
-  const parent = n.parentNode;
-  if (!parent) return '';
-  let text = '';
-  for (const c of parent.childNodes || []) {
-    if (c === n) break;
-    if (c.nodeName === '#text') text += ' ' + (c.value || '');
-    else if (c.tagName && !['script', 'style', 'input', 'select', 'textarea', 'button'].includes(c.tagName)) text += ' ' + getAccessibleName(c, null).name;
+// Text of one sibling node, or '' (whitespace, comments, scripts).
+function nodeText(c, ast) {
+  if (c.nodeName === '#text') return clip(c.value, 80);
+  if (!c.tagName || ['script', 'style', 'template'].includes(c.tagName)) return '';
+  return clip(getAccessibleName(c, ast).name, 80);
+}
+
+// The nearest visible text before / after an element among its siblings: where an unassociated label or a
+// caption usually sits. Only the nearest one: text further away is about something else.
+function siblingText(n, dir) {
+  const kids = (n.parentNode && n.parentNode.childNodes) || [];
+  const i = kids.indexOf(n);
+  for (let j = i + dir; j >= 0 && j < kids.length; j += dir) {
+    const c = kids[j];
+    // Only plain or inline text can be this element's label or caption; a block or another control is something else.
+    if (c.tagName && !INLINE_TEXT.has(c.tagName)) return '';
+    const t = nodeText(c, null);
+    if (t) return t;
   }
-  return clip(text, 160);
+  return '';
+}
+const INLINE_TEXT = new Set(['span', 'label', 'strong', 'b', 'em', 'i', 'small', 'abbr', 'mark', 'code', 'sup', 'sub']);
+const htmlPrecedingText = (n) => siblingText(n, -1);
+const htmlFollowingText = (n) => siblingText(n, 1);
+
+// Text around an element. Inside a small text block (a paragraph, list item, cell, label, heading) that block's text
+// with the element marked; directly in a large container (body, section, div) only the nearest neighbours, because
+// the rest of the container's text is about other things.
+const SMALL_BLOCKS = new Set(['p', 'li', 'td', 'th', 'dt', 'dd', 'label', 'legend', 'caption', 'figcaption', 'figure', 'blockquote', 'summary', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+function htmlNearby(n, marker) {
+  if (n.parentNode && SMALL_BLOCKS.has(n.parentNode.tagName)) return ec.htmlSurroundingText(n, marker);
+  const before = siblingText(n, -1), after = siblingText(n, 1);
+  return before || after ? clip((before ? before + ' ' : '') + marker + (after ? ' ' + after : ''), 200) : '';
+}
+
+// The controls of a form, described by what identifies them: "input type=email (named "Email")".
+function htmlFormFields(form, ast) {
+  const out = [];
+  walkNode(form, (c) => {
+    if (out.length >= 10 || !['input', 'select', 'textarea', 'button'].includes(c.tagName)) return;
+    const name = getAccessibleName(c, ast).name;
+    const bits = [c.tagName + (hAttr(c, 'type') ? ' type=' + hAttr(c, 'type') : '')];
+    for (const k of ['id', 'name', 'placeholder']) if (hAttr(c, k)) bits.push(k + '=' + clip(hAttr(c, k), 40));
+    bits.push(name ? 'named "' + clip(name, 40) + '"' : 'no name');
+    out.push(bits.join(' '));
+  });
+  return out;
 }
 
 function htmlHeadingOutline(ast, starts) {
@@ -211,7 +247,8 @@ function bodyTextSample(ast) {
 function htmlFacts(rule, t, ast, idx, imageNote) {
   const n = t.node;
   const f = { element: '<' + n.tagName + '>', attributes: htmlAttrs(n) };
-  const name = getAccessibleName(n, ast);
+  // A form control is named by its label or aria-*, never by its content (a <select>'s options are not its name).
+  const name = getAccessibleName(n, ast, ['select', 'textarea', 'input'].includes(n.tagName) ? { content: false } : undefined);
   f.accessibleName = name.name ? clip(name.name, 120) + ' (from ' + name.source + ')' : '(none)';
   const interactive = closestAncestor(n, ['a', 'button']);
   if (interactive) f.insideInteractive = '<' + interactive.tagName + '>' + (hAttr(interactive, 'href') ? ' href=' + ec.sanitizeHref(hAttr(interactive, 'href')) : '') + ', its other text: ' + JSON.stringify(clip(getAccessibleName(interactive, ast).name, 100));
@@ -220,24 +257,36 @@ function htmlFacts(rule, t, ast, idx, imageNote) {
     f.imageFileName = ec.imageFileName(hAttr(n, 'src')) || '(none)';
     const fig = ec.htmlFigcaption(n, ast); if (fig) f.figcaption = fig;
     const heading = ec.htmlNearestHeading(ast, n); if (heading) f.nearestHeading = heading;
-    const around = ec.htmlSurroundingText(n, '[IMAGE]'); if (around) f.surroundingText = around;
+    const around = htmlNearby(n, '[IMAGE]'); if (around) f.surroundingText = around;
     f.image = imageNote;
   }
   if (['a', 'button'].includes(n.tagName) || /anchor|button|div-used/.test(rule)) {
     const hints = htmlIconHints(n); if (hints.length) f.purposeHints = hints;
     const handlers = htmlHandlers(n); if (handlers.length) f.handlers = handlers;
     if (hAttr(n, 'href') !== undefined) f.href = ec.sanitizeHref(hAttr(n, 'href')) || '(none or script)';
-    const around = ec.htmlSurroundingText(n, '[ELEMENT]'); if (around) f.surroundingText = around;
+    const around = htmlNearby(n, '[ELEMENT]'); if (around) f.surroundingText = around;
     const heading = ec.htmlNearestHeading(ast, n); if (heading) f.nearestHeading = heading;
     if (closestAncestor(n, ['form'])) f.insideForm = true;
   }
   if (['input', 'select', 'textarea'].includes(n.tagName) || /label/.test(rule)) {
     const before = htmlPrecedingText(n); if (before) f.visibleTextBeforeControl = before;
+    const after = htmlFollowingText(n); if (after) f.visibleTextAfterControl = after;
     const id = hAttr(n, 'id');
     f.controlId = id || '(none: add a unique id if a <label for> is used)';
     if (id) f.labelsPointingHere = idx.refs.filter(r => r.id === id && r.via === 'for').map(r => 'line ' + r.line);
     const wrap = closestAncestor(n, ['label']); if (wrap) f.wrappedInLabel = true;
+    if (n.tagName === 'select') {
+      const opts = []; walkNode(n, (c) => { if (c.tagName === 'option' && opts.length < 8) opts.push(clip(getAccessibleName(c, ast).name || hAttr(c, 'value') || '', 40)); });
+      if (opts.length) f.optionTexts = opts;
+    }
+    for (const k of ['name', 'type', 'placeholder', 'autocomplete']) if (hAttr(n, k)) f[k] = hAttr(n, k);
   }
+  const form = n.tagName === 'form' ? n : closestAncestor(n, ['form']);
+  if (form && (rule === 'form-missing-landmark' || n.tagName === 'button' || /label/.test(rule))) {
+    f.formFields = htmlFormFields(form, ast);
+    if (hAttr(form, 'action')) f.formAction = ec.sanitizeHref(hAttr(form, 'action')) || '(script)';
+  }
+  if (n.tagName === 'button') f.buttonType = hAttr(n, 'type') || (form ? 'submit (default inside a form)' : '(none)');
   if (rule === 'form-missing-landmark') {
     const heading = ec.htmlNearestHeading(ast, n); if (heading) f.nearestHeading = heading;
     const submit = []; walkNode(n, (c) => { if ((c.tagName === 'button' || (c.tagName === 'input' && /submit/i.test(hAttr(c, 'type') || ''))) && submit.length < 3) submit.push(clip(getAccessibleName(c, ast).name || hAttr(c, 'value') || '', 40)); });
@@ -389,6 +438,8 @@ function fileFacts(language, languageId, source, fileName, parsed, projectFacts)
   if (language === 'html' && parsed) {
     const htmlEl = []; walkNode(parsed, (n) => { if (n.tagName === 'html') htmlEl.push(n); });
     f.documentLang = htmlEl[0] ? (hAttr(htmlEl[0], 'lang') || '(missing)') : '(fragment: no <html>)';
+    const title = []; walkNode(parsed, (n) => { if (n.tagName === 'title' && !title.length) title.push(getAccessibleName(n, parsed).name || (n.childNodes && n.childNodes[0] && n.childNodes[0].value) || ''); });
+    if (title[0]) f.pageTitle = clip(title[0], 120);
     f.headingOutline = htmlHeadingOutline(parsed);
     f.idsInFile = [...htmlIdIndex(parsed).ids.keys()].slice(0, 150);
     f.pageTextSample = bodyTextSample(parsed);

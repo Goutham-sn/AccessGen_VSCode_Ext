@@ -4,7 +4,8 @@
 // marked stale and nothing is applied.
 
 const vscode = require('vscode');
-const { applyRanges } = require('../remediation/batch/verify');
+const { applyRanges, fillInput, cleanInput } = require('../remediation/batch/verify');
+const { titleOf } = require('../rules/titles');
 
 const PREVIEW_SCHEME = 'accessgen-fix';
 
@@ -51,24 +52,37 @@ function createFixController({ store, rescan }) {
     return vscode.workspace.openTextDocument(vscode.Uri.parse(p.uri));
   }
 
-  async function preview(id) {
+  // The proposal's ranges with its {{INPUT}} slot filled. null when it has a slot and no answer was given.
+  function filled(p, ranges, value) {
+    if (!p.hasInput) return ranges;
+    if (!cleanInput(value)) return null;
+    return ranges.map(r => ({ ...r, newText: fillInput(r.newText, value) }));
+  }
+
+  async function preview(id, value) {
     const p = store.getProposal(id);
     if (!p || !p.ranges || !p.ranges.length) return;
     const doc = await documentOf(p);
-    const ranges = relocate(doc.getText(), p.ranges);
-    if (!ranges) { store.decide(id, 'stale'); vscode.window.showWarningMessage('AccessGen: the code changed since this fix was proposed. Run the fix again.'); return; }
+    const located = relocate(doc.getText(), p.ranges);
+    if (!located) { store.decide(id, 'stale'); vscode.window.showWarningMessage('AccessGen: the code changed since this fix was proposed. Run the fix again.'); return; }
+    const ranges = filled(p, located, value || (p.suggestions && p.suggestions[0]) || '…');
     const uri = vscode.Uri.parse(PREVIEW_SCHEME + ':/' + encodeURIComponent(id) + '/' + require('path').basename(doc.uri.fsPath || 'file'));
     previews.set(uri.toString(), applyRanges(doc.getText(), ranges));
     changed.fire(uri);
-    await vscode.commands.executeCommand('vscode.diff', doc.uri, uri, 'AccessGen fix: ' + p.ruleId + ' (line ' + p.line + ') — current ↔ proposed');
+    await vscode.commands.executeCommand('vscode.diff', doc.uri, uri, 'Fix preview: ' + titleOf(p.ruleId) + ' (line ' + p.line + ')  —  left: now, right: after the fix');
   }
 
-  async function accept(id, { silent } = {}) {
+  async function accept(id, { silent, value } = {}) {
     const p = store.getProposal(id);
     if (!p || p.decision !== 'pending' || !p.ranges || !p.ranges.length) return false;
+    if (p.hasInput && !cleanInput(value)) {
+      if (!silent) vscode.window.showInformationMessage('AccessGen: type the text for this fix first (' + (p.needsInput || 'it needs your answer') + ').');
+      return false;
+    }
     const doc = await documentOf(p);
     const text = doc.getText();
-    const ranges = relocate(text, p.ranges);
+    const located = relocate(text, p.ranges);
+    const ranges = located && filled(p, located, value);
     if (!ranges) {
       store.decide(id, 'stale');
       if (!silent) vscode.window.showWarningMessage('AccessGen: the code changed since this fix was proposed, so nothing was applied. Run the fix again.');
@@ -93,7 +107,7 @@ function createFixController({ store, rescan }) {
   // Applies every pending proposal that passed all local checks and needs no input, file by file. Each accepted edit
   // shifts the others; one that no longer applies cleanly is skipped (stale), never forced.
   async function acceptAllVerified(uri) {
-    const list = store.listProposals().filter(p => p.decision === 'pending' && p.status === 'fixed' && p.verification && p.verification.verified && (!uri || p.uri === uri));
+    const list = store.listProposals().filter(p => p.decision === 'pending' && p.status === 'fixed' && !p.hasInput && p.verification && p.verification.verified && (!uri || p.uri === uri));
     let applied = 0, skipped = 0;
     for (const p of list) {
       if (store.getProposal(p.id).decision !== 'pending') continue;

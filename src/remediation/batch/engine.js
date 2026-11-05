@@ -19,8 +19,8 @@
 
 const crypto = require('crypto');
 const { buildFileContext } = require('./context');
-const { buildBatchRequest, chunkIssues, parseBatchReply, MAX_ISSUES_PER_REQUEST } = require('./prompt');
-const { verifyFix, makeAnalyzer } = require('./verify');
+const { buildBatchRequest, chunkIssues, parseBatchReply, MAX_ISSUES_PER_REQUEST, INPUT_TOKEN } = require('./prompt');
+const { verifyFix, makeAnalyzer, locateEdits, fillInput } = require('./verify');
 const { getRuleById } = require('../../analyzer');
 
 const MAX_ISSUES_PER_RUN = 80;
@@ -164,13 +164,23 @@ function createRemediationEngine({ requestFix, salt }) {
           status = 'covered';
           coveredBy = sha(filePath + '\u0000' + byLocalId.get(a.coveredBy).cacheKey);
         } else if ((status === 'fixed' || status === 'needs-input') && a.edits.length) {
-          verification = await verifyFix({ source, languageId, ruleId: it.ruleId, edits: a.edits, near: [it.region.start, it.region.end], analyze });
+          const near = [it.region.start, it.region.end];
+          // A fix with a {{INPUT}} slot is checked with its best suggested answer filled in; the proposal keeps the slot.
+          const sample = (a.suggestions && a.suggestions[0]) || 'Example';
+          const checked = a.edits.map(e => ({ find: e.find, replace: fillInput(e.replace, sample) }));
+          verification = await verifyFix({ source, languageId, ruleId: it.ruleId, edits: checked, near, analyze });
+          if (verification.applies && a.edits.some(e => e.replace.includes(INPUT_TOKEN))) {
+            const template = locateEdits(source, a.edits, near);
+            if (template.ok) verification.ranges = template.ranges;
+          }
         } else if (status === 'fixed' || status === 'needs-input') {
           status = 'cannot-fix';
         }
+        const ranges = verification ? verification.ranges : [];
         out.proposals.push({
           ...base(it), source: 'ai', status, confidence: a.confidence, summary: a.summary, steps: a.steps, testing: a.testing,
-          needsInput: a.needsInput, coveredBy, ranges: verification ? verification.ranges : [], verification, model: a.model || keySalt
+          needsInput: a.needsInput, suggestions: a.suggestions || [], hasInput: ranges.some(r => r.newText.includes(INPUT_TOKEN)),
+          coveredBy, ranges, verification, model: a.model || keySalt
         });
       }
     }

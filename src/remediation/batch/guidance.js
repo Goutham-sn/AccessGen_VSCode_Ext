@@ -15,7 +15,7 @@ const GUIDE = {
       '- functional (inside a link or button with no other text): describe the action or destination, not the picture;',
       '- decorative or redundant with adjacent text (the same words appear next to it, or it is a spacer/flourish/background-like graphic): alt="";',
       '- complex (chart, diagram): short alt plus point the developer to a longer description in steps.',
-      'Use the attached image when one is provided: describe what is actually visible that matters in this context. Otherwise use the file name, figcaption, surrounding text and heading only as evidence; if they do not establish what the image shows, set status "needs-input" and use alt="TODO(a11y): describe this image" so the developer can search for it.'
+      'Use the attached image when one is provided: describe what is actually visible that matters in this context. Otherwise use the file name, figcaption, surrounding text and heading only as evidence; if they do not establish what the image shows, ask (status "needs-input", alt="{{INPUT}}", question "What does this image show?").'
     ]
   },
   'jsx-img-alt-missing': { sameAs: 'img-alt-missing', extra: 'In JSX keep the prop style of the file (alt="..." or alt={...}). For a component such as next/image <Image>, alt is still required.' },
@@ -24,7 +24,7 @@ const GUIDE = {
     guidance: [
       'Give the link an accessible name that states its destination or purpose on its own (WCAG 2.4.4).',
       'Prefer visible text. For an icon-only link keep the icon, mark decorative icon elements aria-hidden="true" (an <svg> also focusable="false") and add aria-label on the <a>, or add visually hidden text if the project has an sr-only / visually-hidden utility (see facts).',
-      'Derive the name from evidence: the href (domain, path words), icon class names (e.g. "fa-twitter" -> "Twitter"), an svg <title>, the surrounding text. Never use "click here", "read more", "link" or the raw URL. If the purpose cannot be inferred, status "needs-input".',
+      'Derive the name from evidence: the href (domain, path words), icon class names (e.g. "fa-twitter" -> "Twitter"), an svg <title>, the surrounding text. Never use "click here", "read more", "link" or the raw URL. If nothing indicates the purpose, ask (aria-label="{{INPUT}}", question "Where does this link go?").',
       'If the link opens a new window (target="_blank"), mention it in the name, e.g. "Pricing (opens in new tab)".'
     ]
   },
@@ -35,7 +35,8 @@ const GUIDE = {
       'Give the button an accessible name that says what it does (a verb phrase: "Close dialog", "Open menu", "Delete item").',
       'Icon-only button: keep the icon, add aria-label on the <button> (or visually hidden text when an sr-only utility exists), mark the icon aria-hidden="true".',
       'Infer the action from evidence: onclick handler names, icon class names, svg <title>, id/class names ("btn-close"), data attributes, surrounding text. Keep type="button" if present; add type="button" only if the button is inside a <form> and clearly is not a submit button.',
-      'If the action cannot be inferred, status "needs-input".'
+      'A submit button (type="submit", or no type inside a <form>) is named after what the form does: use the form fields and heading ("Subscribe", "Sign in", "Search", "Send message"), "Submit" at worst.',
+      'Only if nothing at all indicates the action, ask (put {{INPUT}} as the button text, question "What does this button do?", with likely answers).'
     ]
   },
   'div-used-as-button': {
@@ -71,7 +72,7 @@ const GUIDE = {
       'Use existing visible text next to the control as the label text (often a <span>, <p>, <td> or <div> before it): convert that element to a <label> instead of duplicating text.',
       'Placeholder is NOT a label. If the design has no visible text, use aria-label (or aria-labelledby pointing at existing text) and say in steps that a visible label is better (WCAG 3.3.2).',
       'Derive the label from evidence: nearby text, name, id, placeholder, autocomplete, type. Add an appropriate autocomplete token when the purpose is clearly personal data (email, name, tel, street-address) as a step, not as an edit, unless certain.',
-      'type="hidden", "submit", "button", "reset", "image" are not this rule. If the purpose cannot be inferred, status "needs-input".'
+      'type="hidden", "submit", "button", "reset", "image" are not this rule. For a <select>, the option texts usually say what it is (countries -> "Country"). Ask only when nothing indicates the purpose.'
     ]
   },
   'select-no-label': { sameAs: 'input-label-missing' },
@@ -80,7 +81,7 @@ const GUIDE = {
     region: 'element',
     guidance: [
       'A form landmark needs an accessible name. Prefer aria-labelledby pointing at the id of an existing visible heading that introduces the form (add an id to that heading if needed); otherwise aria-label with the form purpose ("Newsletter sign-up", "Search").',
-      'Derive the purpose from the heading, submit button text, action URL and field names. If unclear, status "needs-input".'
+      'Derive the purpose from the heading, submit button text, action URL and the fields (see facts): one email field -> "Newsletter sign-up"; email + password -> "Sign in"; a search field -> "Search". Ask only when the form has no telling fields.'
     ]
   },
   'table-missing-headers': {
@@ -96,7 +97,7 @@ const GUIDE = {
     region: 'element',
     guidance: [
       'Add a title that describes the embedded content ("YouTube video: Product tour", "Google Map of our office", "Payment form").',
-      'Infer from src (domain, video/map/embed paths), nearby headings and surrounding text. If unclear, status "needs-input" with title="TODO(a11y): describe this frame".',
+      'Infer from src (domain, video/map/embed paths), nearby headings and surrounding text. The file name is usually enough ("payment.html" -> "Payment form"). Ask only when the src says nothing.',
       'A purely decorative or hidden iframe (tracking pixel, width/height 0) gets aria-hidden="true" and tabindex="-1" instead.'
     ]
   },
@@ -104,7 +105,7 @@ const GUIDE = {
     region: 'element',
     guidance: [
       'Add lang to the <html> start tag with the BCP 47 code of the page language (e.g. lang="en", "de", "fr-CA").',
-      'Detect the language from the page text sample in facts; if the text is too short to tell, use "en" only when the visible text is English, otherwise status "needs-input".'
+      'Detect the language from the page text sample in facts; if the text is too short to tell, use "en" when the visible text and title are English (the usual case); ask only when the text is clearly not English but the language is unclear.'
     ]
   },
   'duplicate-id': {
@@ -134,7 +135,7 @@ const GUIDE = {
   'media-missing-captions': {
     region: 'element',
     guidance: [
-      'Add <track kind="captions" src="..." srclang=".." label=".."> inside the <video>/<audio>. You cannot create the caption file: use a src next to the media file (same base name, .vtt) and status "needs-input", telling the developer to create that WebVTT file.',
+      'Add <track kind="captions" src="..." srclang=".." label=".."> inside the <video>/<audio>. You cannot create the caption file: add the <track> pointing at a captions file next to the media file (same base name, .vtt, srclang from the page lang, label "English" or the page language) with status "fixed", and say in steps that the developer must create that WebVTT file.',
       'For audio-only content, a transcript is the requirement: say so in steps.',
       'Keep existing <source> elements; put <track> after them.'
     ]
@@ -150,8 +151,8 @@ const GUIDE = {
   'heading-empty': {
     region: 'parent',
     guidance: [
-      'An empty heading must get real text or be removed. If it is a styling placeholder or has no purpose, remove the element. If it is filled by script later, mention it and set status "needs-input".',
-      'Derive text from the section content that follows only when it is unambiguous; otherwise status "needs-input".'
+      'An empty heading must get real text or be removed. If it is a styling placeholder or has no purpose, remove the element. If it is filled by script later, say so (status "false-positive").',
+      'Derive text from the section content that follows only when it is unambiguous; otherwise ask for the heading text ({{INPUT}}, question "What is this section about?").'
     ]
   },
   'jsx-heading-empty': { sameAs: 'heading-empty', extra: 'If the heading renders a variable or prop the analyzer could not resolve, it may be a false positive: say so.' },

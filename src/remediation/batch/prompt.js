@@ -19,14 +19,19 @@ const SYSTEM = [
   'How to fix:',
   '1. Make the smallest change that fully resolves the issue for real assistive-technology users, following the issue guidance. Do not refactor, reformat or fix anything that is not reported.',
   '2. Preserve the code exactly as written elsewhere: indentation, quote style, attribute order, line endings, framework idioms (JSX className/htmlFor/tabIndex={0}/camelCase events), comments, classes, ids, data-* and test attributes, event handlers and children. Never change what the code does beyond the fix.',
-  '3. Never invent facts. Human-readable text you add (alt text, labels, link and button names, titles, captions, lang) must be supported by the evidence given: the attached image, file and icon names, handler names, href, visible text, headings, figcaptions. When evidence is insufficient, still make the structural fix with a placeholder that starts with "TODO(a11y):" and set status "needs-input" with the question for the developer.',
-  '4. Do not introduce new problems: no duplicate ids (check the ids list), no nested interactive elements, no positive tabindex, no aria-label on an element whose role does not support naming, no redundant role on a native element, no hiding focusable content with aria-hidden, and the result must still parse.',
-  '5. If the report is wrong for this code (the name is supplied in a way the analyzer missed, e.g. by spread props, a component, or text you can see), set status "false-positive", explain why, and make no edits.',
-  '6. If two issues need a change to the same code, make the combined change in the first one and set coveredBy on the other to that first id with no edits.',
+  '3. Human-readable text you add (alt text, labels, link and button names, titles, lang) must come from the evidence given, and you should use ALL of it: the attached image, ids, names, classes, option texts, placeholder, type, autocomplete, href, handler names, icon names, button text, field labels in the same form, nearby text, headings, figcaptions. Write the best concrete, natural text the evidence supports, as a careful developer would. Examples: <select id="country"> whose options are countries -> "Country"; <input type="email"> -> "Email address"; a submit button in a form whose only field is an email address -> "Subscribe" or "Submit"; a form with one email field and a submit button -> "Newsletter sign-up"; class "fa-search" -> "Search"; href "/about" -> "About us"; iframe src "payment.html" -> "Payment form". That is status "fixed".',
+  '4. Only when the evidence gives NO basis for the text (for example an empty <button></button> with no id, class, handler, icon or surrounding text), do not guess and never write placeholder words such as "TODO", "Button name" or "Label" into the code. Instead: status "needs-input"; in the edit put the exact token {{INPUT}} where the text goes (e.g. <button>{{INPUT}}</button> or aria-label="{{INPUT}}"); needsInput is ONE short plain-language question for the developer ("What does this button do?"); suggestions are 1 to 3 likely answers, best first. The developer types or picks the text and AccessGen inserts it.',
+  '5. Do not introduce new problems: no duplicate ids (check the ids list), no nested interactive elements, no positive tabindex, no aria-label on an element whose role does not support naming, no redundant role on a native element, no hiding focusable content with aria-hidden, and the result must still parse.',
+  '6. If the report is wrong for this code (the name is supplied in a way the analyzer missed, e.g. by spread props, a component, or text you can see), set status "false-positive", explain why, and make no edits.',
+  '7. If two issues need a change to the same code, make the combined change in the first one and set coveredBy on the other to that first id with no edits.',
   '',
   'Edits: each edit is {"find": ..., "replace": ...}. "find" is copied verbatim from the source you were given (same whitespace and line breaks) and must occur exactly once in the file: include the whole start tag, declaration or line, and add neighbouring lines if needed to make it unique. "replace" is the full new text for exactly that span. Edits of one issue must not overlap. Edit only what the fix needs; you may edit outside the flagged range when the fix requires it (e.g. add an id to an input that a new label points to, add a CSS rule after the flagged one).',
   '',
-  'For every issue, also give steps: 1 to 4 short sentences a developer can act on (what was changed and why, anything they must still do by hand), and testing: one sentence on how to check the fix (keyboard, screen reader, contrast checker).',
+  'For every issue also write, in plain language for a developer who is not an accessibility expert (no rule ids, no jargon):',
+  '- summary: ONE sentence saying what the fix does and quoting any text it adds, e.g. \'Labels the country dropdown "Country" so screen readers announce what it is for.\'',
+  '- steps: 0 to 3 short sentences on anything the developer should still check or do by hand (empty when nothing).',
+  '- testing: one sentence on how to check the fix (keyboard, screen reader, contrast checker).',
+  'needsInput and suggestions are "" and [] unless the status is "needs-input".',
   '',
   'confidence (0 to 1) is how sure you are that the edits are correct and complete for this code. Use 0.9 or more only when the evidence settles every text you wrote.',
   '',
@@ -45,7 +50,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['id', 'status', 'confidence', 'summary', 'steps', 'edits', 'needsInput', 'coveredBy', 'testing'],
+        required: ['id', 'status', 'confidence', 'summary', 'steps', 'edits', 'needsInput', 'suggestions', 'coveredBy', 'testing'],
         properties: {
           id: { type: 'string' },
           status: { type: 'string', enum: ['fixed', 'needs-input', 'false-positive', 'cannot-fix'] },
@@ -62,6 +67,7 @@ const SCHEMA = {
             }
           },
           needsInput: { type: 'string' },
+          suggestions: { type: 'array', items: { type: 'string' } },
           coveredBy: { type: 'string' },
           testing: { type: 'string' }
         }
@@ -162,6 +168,9 @@ function chunkIssues(issues, size) {
   return out;
 }
 
+const INPUT_TOKEN = '{{INPUT}}';
+const PLACEHOLDER = /TODO\s*(\(a11y\))?\s*:?[^"'<>{}\r\n]*/gi;
+
 // Validates and normalises a reply against SCHEMA. Unknown ids are dropped; malformed entries are skipped.
 function parseBatchReply(obj, ids) {
   const list = obj && Array.isArray(obj.fixes) ? obj.fixes : null;
@@ -175,11 +184,18 @@ function parseBatchReply(obj, ids) {
     if (!Number.isFinite(confidence)) confidence = 0.5;
     if (confidence > 1 && confidence <= 100) confidence /= 100;
     confidence = Math.max(0, Math.min(1, confidence));
-    const edits = Array.isArray(x.edits) ? x.edits.filter(e => e && typeof e.find === 'string' && typeof e.replace === 'string' && e.find.length > 0).slice(0, 12) : [];
+    // Placeholder words a model may still write despite the instructions never reach the code: they become an
+    // {{INPUT}} slot the developer fills in.
+    const edits = (Array.isArray(x.edits) ? x.edits.filter(e => e && typeof e.find === 'string' && typeof e.replace === 'string' && e.find.length > 0).slice(0, 12) : [])
+      .map(e => ({ find: e.find, replace: e.find.includes('TODO') ? e.replace : e.replace.replace(PLACEHOLDER, INPUT_TOKEN) }));
     const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const hasSlot = edits.some(e => e.replace.includes(INPUT_TOKEN));
+    const suggestions = (Array.isArray(x.suggestions) ? x.suggestions : [])
+      .filter(s => typeof s === 'string' && s.trim() && !/TODO|\{\{|\}\}/.test(s)).map(s => s.trim().slice(0, 100)).slice(0, 3);
     out.set(x.id, {
       id: x.id,
-      status,
+      status: hasSlot && (status === 'fixed' || status === 'needs-input') ? 'needs-input' : status,
+      suggestions: hasSlot ? suggestions : [],
       confidence: Math.round(confidence * 100) / 100,
       summary: str(x.summary, 400),
       steps: Array.isArray(x.steps) ? x.steps.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim().slice(0, 400)).slice(0, 6) : [],
@@ -192,4 +208,4 @@ function parseBatchReply(obj, ids) {
   return out;
 }
 
-module.exports = { SYSTEM, SCHEMA, buildBatchRequest, chunkIssues, parseBatchReply, FULL_FILE_MAX, MAX_ISSUES_PER_REQUEST };
+module.exports = { SYSTEM, SCHEMA, buildBatchRequest, chunkIssues, parseBatchReply, FULL_FILE_MAX, MAX_ISSUES_PER_REQUEST, INPUT_TOKEN };

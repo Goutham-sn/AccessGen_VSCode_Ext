@@ -109,7 +109,7 @@ const PAGE = [
   check('one request carries every issue, each with an id', ctx.issues.map(i => req.text.includes('### ' + i.id + ' - ' + i.ruleId)).every(Boolean), true);
   check('a small file is sent whole once (find strings are copied from it)', [req.text.includes('## Complete file source'), req.text.split('<a href="https://twitter.com/acme">').length - 1], [true, 2]);
   check('images are collected for the provider and referenced by number', [req.images.length, /attached image #1/.test(req.text)], [1, true]);
-  check('the system prompt is constant (cacheable) and states the core rules', [req.system === P.SYSTEM, ['native HTML', 'Never invent facts', 'exactly once', 'false-positive', 'untrusted'].filter(t => !req.system.includes(t))], [true, []]);
+  check('the system prompt is constant (cacheable) and states the core rules', [req.system === P.SYSTEM, ['native HTML', 'must come from the evidence', '{{INPUT}}', 'never write placeholder words', 'exactly once', 'false-positive', 'untrusted'].filter(t => !req.system.includes(t))], [true, []]);
   check('output allowance grows with the number of issues, capped', [req.maxTokens, P.buildBatchRequest(ctx, Array(40).fill(ctx.issues[0]), { source: PAGE }).maxTokens], [1500 + 700 * ctx.issues.length, 16000]);
   const big = PAGE + '\n<!--' + 'x'.repeat(P.FULL_FILE_MAX) + '-->';
   const bigReq = P.buildBatchRequest(buildFileContext({ source: big, languageId: 'html', violations: vs, fileName: 'b.html' }), ctx.issues, { source: big });
@@ -121,7 +121,25 @@ const PAGE = [
     { id: 'I1', status: 'fixed' }, { id: 'ZZ', status: 'fixed' }, { id: 'I2', status: 'weird', confidence: 'n/a', edits: 'no' }
   ] }, ['I1', 'I2']);
   check('reply parsing: % confidence, bad entries/edits dropped, unknown ids and duplicates ignored, unknown coveredBy cleared', [reply.size, reply.get('I1').confidence, reply.get('I1').steps, reply.get('I1').edits.length, reply.get('I1').coveredBy, reply.get('I2').status, reply.get('I2').confidence], [2, 0.85, ['a'], 1, '', 'cannot-fix', 0.5]);
+  const ph = P.parseBatchReply({ fixes: [
+    { id: 'I1', status: 'fixed', confidence: 0.6, summary: 's', steps: [], edits: [{ find: '<button></button>', replace: '<button>TODO(a11y): Button name</button>' }], needsInput: 'What does it do?', suggestions: ['Close', 'TODO x', '{{bad}}'], coveredBy: '', testing: '' },
+    { id: 'I2', status: 'fixed', confidence: 0.9, summary: 's', steps: [], edits: [{ find: '<select id="c">', replace: '<select id="c" aria-label="Country">' }], needsInput: '', suggestions: ['ignored'], coveredBy: '', testing: '' }
+  ] }, ['I1', 'I2']);
+  check('placeholder text a model still writes never reaches the code: it becomes a question slot', [ph.get('I1').edits[0].replace, ph.get('I1').status, ph.get('I1').suggestions], ['<button>{{INPUT}}</button>', 'needs-input', ['Close']]);
+  check('a concrete fix stays "fixed" and carries no suggestions', [ph.get('I2').status, ph.get('I2').suggestions], ['fixed', []]);
   check('a reply without a fixes array is unusable', P.parseBatchReply({ nope: 1 }, ['I1']), null);
+
+  const T = require('../src/rules/titles');
+  check('every rule has a plain-language title and impact', require('../src/analyzer').allRules().map(r => r.id).filter(id => !T.TITLES[id] || !T.impactOf(id)), []);
+
+  console.log('\nevidence for text: option texts, form fields, only nearby text');
+  const real = require('fs').readFileSync(require('path').join(__dirname, '..', 'test-files', 'test.html'), 'utf8');
+  const rctx = buildFileContext({ source: real, languageId: 'html', violations: await analyze(real, 'html'), fileName: 'test.html' });
+  const at = (rule, line) => rctx.issues.find(i => i.ruleId === rule && i.line === line).facts;
+  check('a <select> is named by its label, not its options; its option texts are evidence', [at('select-no-label', 41).accessibleName, at('select-no-label', 41).optionTexts], ['(none)', ['United States', 'United Kingdom']]);
+  check('a submit button sees the fields of its form', [at('button-empty', 37).buttonType, at('button-empty', 37).formFields[0]], ['submit', 'input type=text id=email named "Email"']);
+  check('a lone empty button gets no misleading "nearby" text from unrelated elements', [at('button-empty', 19).surroundingText, at('button-empty', 19).formFields], [undefined, undefined]);
+  check('page title is a file fact', rctx.file.pageTitle, 'AccessGen Test File');
 
   // ================================================================== verify
   console.log('\nverification');
@@ -139,6 +157,8 @@ const PAGE = [
   check('CRLF files: \\n in the reply is matched and written as CRLF', [crlf.ok, crlf.ranges[0].newText], [true, '<p>\r\n<img src="a" alt="A">']);
   check('overlapping edits are refused', V.locateEdits('abcdef', [{ find: 'abcd', replace: 'x' }, { find: 'cdef', replace: 'y' }]).reason, 'two edits overlap');
   check('a JSX edit that breaks parsing is refused', (await V.verifyFix({ source: jsx, languageId: 'javascriptreact', ruleId: 'jsx-onclick-no-keyboard', edits: [{ find: '<span onClick={() => handleDelete(id)}>', replace: '<button type="button" onClick={() => handleDelete(id)}' }], analyze: an })).parses, false);
+
+  check('an answer filled into a slot is one safe line: markup escaped, JSX braces removed', V.fillInput('<button>{{INPUT}}</button>', ' Say "hi" <b>{x}</b> & go\n now '), '<button>Say &quot;hi&quot; &lt;b&gt;x&lt;/b&gt; &amp; go now</button>');
 
   // ================================================================== engine
   console.log('\nengine: cost controls, gates, verification');
@@ -161,6 +181,15 @@ const PAGE = [
   check('a correct fix becomes a verified proposal with exact ranges', [img.status, img.verification.verified, img.ranges[0].newText], ['fixed', true, '<img src="ceo.png" alt="Jane Doe, CEO">']);
   const again = await engine.remediate({ files, config: CFG, gates: {} });
   check('a second run on unchanged code sends nothing (answers reused)', [calls.length, again.requests, again.cached], [1, 0, vs.length]);
+  const changedAround = PAGE.replace('<h1>Team</h1>', '<h1>Team</h1><!-- hero -->');
+  const reCalls = [];
+  const reEngine = createRemediationEngine({ requestFix: fake(reCalls) });
+  await reEngine.remediate({ files, config: CFG });
+  const reFiles = [{ ...files[0], source: changedAround, violations: await analyze(changedAround, 'html') }];
+  await reEngine.remediate({ files: reFiles, config: CFG, retryUnresolved: false });
+  const afterProactive = reCalls.length;
+  await reEngine.remediate({ files: reFiles, config: CFG, retryUnresolved: true });
+  check('an unresolved answer is asked again after its surroundings changed, but only on a run the developer started', [afterProactive, reCalls.length, (reCalls[1].text.match(/### I\d+/g) || []).length < vs.length], [1, 2, true]);
   const otherModel = createRemediationEngine({ requestFix: fake(calls), salt: (c) => c.model });
   await otherModel.remediate({ files, config: { ...CFG, model: 'a' } });
   await otherModel.remediate({ files, config: { ...CFG, model: 'b' } });
@@ -185,6 +214,12 @@ const PAGE = [
   const coverEngine = createRemediationEngine({ requestFix: async (r) => ({ fixes: [...r.text.matchAll(/### (I\d+) - ([\w-]+)/g)].map((m, i) => answer(m[1], m[2], i === 1 ? { coveredBy: 'I1' } : {})) }) });
   const cov = await coverEngine.remediate({ files, config: CFG });
   check('coveredBy links an issue to the proposal that fixes it', cov.proposals.filter(p => p.status === 'covered').map(p => p.coveredBy === cov.proposals[0].id), [true]);
+
+  const slotEngine = createRemediationEngine({ requestFix: async (r) => ({ fixes: [...r.text.matchAll(/### (I\d+) - ([\w-]+)/g)].map(([, id, rule]) => rule === 'img-alt-missing'
+    ? { id, status: 'needs-input', confidence: 0.4, summary: 'Adds alt text.', steps: [], edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="{{INPUT}}">' }], needsInput: 'What does this image show?', suggestions: ['Portrait of the CEO'], coveredBy: '', testing: '' }
+    : answer(id, rule, { status: 'cannot-fix' })) }) });
+  const slot = (await slotEngine.remediate({ files, config: CFG })).proposals.find(p => p.ruleId === 'img-alt-missing');
+  check('a question fix keeps its slot, is checked with its best suggestion, and carries the question', [slot.status, slot.hasInput, slot.ranges[0].newText, slot.verification.verified, slot.needsInput, slot.suggestions], ['needs-input', true, '<img src="ceo.png" alt="{{INPUT}}">', true, 'What does this image show?', ['Portrait of the CEO']]);
 
   // ================================================================== providers
   console.log('\nproviders: request shapes');

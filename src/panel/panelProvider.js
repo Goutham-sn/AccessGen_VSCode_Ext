@@ -4,6 +4,7 @@
 
 const vscode = require('vscode');
 const crypto = require('crypto');
+const { titleOf, impactOf } = require('../rules/titles');
 
 const VIEW_ID = 'accessgen.panel';
 const SETTINGS = {
@@ -30,14 +31,15 @@ function createPanelProvider({ extensionUri, store, controller, actions, getConf
       relPath: relPath(f.uri),
       languageId: f.languageId,
       issues: f.violations.map((v, i) => ({
-        index: i, ruleId: v.ruleId, severity: v.severity, wcag: (v.message && v.message.wcag) || '',
+        index: i, ruleId: v.ruleId, title: titleOf(v.ruleId), impact: impactOf(v.ruleId), severity: v.severity, wcag: (v.message && v.message.wcag) || '',
         line: v.startLine + 1, what: (v.message && v.message.what) || '', fix: (v.message && v.message.fix) || ''
-      }))
+      })).sort((x, y) => x.line - y.line)
     })).sort((a, b) => a.relPath.localeCompare(b.relPath));
     const proposals = store.listProposals().map(p => {
       const f = store.getFile(p.uri);
       return {
-        id: p.id, uri: p.uri, relPath: relPath(p.uri), ruleId: p.ruleId, severity: p.severity, line: p.line,
+        id: p.id, uri: p.uri, relPath: relPath(p.uri), ruleId: p.ruleId, title: titleOf(p.ruleId), impact: impactOf(p.ruleId), wcag: p.wcag || '', severity: p.severity, line: p.line,
+        hasInput: !!p.hasInput, suggestions: p.suggestions || [],
         status: p.status, decision: p.decision, source: p.source, confidence: p.confidence, summary: p.summary,
         steps: p.steps || [], testing: p.testing || '', needsInput: p.needsInput || '', model: p.model || '',
         coveredBy: p.coveredBy || '', problem: p.problem || '',
@@ -86,8 +88,8 @@ function createPanelProvider({ extensionUri, store, controller, actions, getConf
       case 'fixFile': await runBusy('AI is fixing ' + (relPath(str(m.uri)) || 'file') + '…', () => actions.fixFiles([str(m.uri)])); break;
       case 'fixIssue': await runBusy('AI is fixing one issue…', () => actions.fixIssue(str(m.uri), Number(m.index))); break;
       case 'fixAll': await runBusy('AI is fixing all scanned files…', () => actions.fixFiles(null)); break;
-      case 'preview': await controller.preview(str(m.id)); break;
-      case 'accept': await controller.accept(str(m.id)); break;
+      case 'preview': await controller.preview(str(m.id), str(m.value)); break;
+      case 'accept': await controller.accept(str(m.id), { value: str(m.value) }); break;
       case 'reject': controller.reject(str(m.id)); break;
       case 'acceptAllVerified': await runBusy('Applying verified fixes…', () => controller.acceptAllVerified()); break;
       case 'setKey': await vscode.commands.executeCommand('accessgen.setAiApiKey'); break;

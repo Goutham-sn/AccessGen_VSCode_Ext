@@ -122,6 +122,7 @@ http.postJson = async (url, headers, body) => {
   const text = body.messages[0].content.find(c => c.type === 'text').text;
   const fixes = [...text.matchAll(/### (I\d+) - ([\w-]+)/g)].map(([, id, rule]) => {
     if (rule === 'img-alt-missing') return { id, status: 'fixed', confidence: 0.92, summary: 'Added alt text describing the portrait.', steps: ['Check the description matches the photo.'], edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="Portrait of the CEO">' }], needsInput: '', coveredBy: '', testing: 'Use a screen reader.' };
+    if (rule === 'html-missing-lang') return { id, status: 'needs-input', confidence: 0.5, summary: 'Sets the page language.', steps: [], edits: [{ find: '<html>', replace: '<html lang="{{INPUT}}">' }], needsInput: 'Which language is the page in?', suggestions: ['en'], coveredBy: '', testing: '' };
     if (rule === 'anchor-no-text') return { id, status: 'fixed', confidence: 0.8, summary: 'Named the link.', steps: [], edits: [{ find: '<a href="/about"></a>', replace: '<a href="/about">About us</a>' }], needsInput: '', coveredBy: '', testing: '' };
     return { id, status: 'cannot-fix', confidence: 0.3, summary: 'Needs a decision.', steps: [], edits: [], needsInput: '', coveredBy: '', testing: '' };
   });
@@ -179,14 +180,25 @@ http.postJson = async (url, headers, body) => {
   check('Reject records the decision and changes nothing', [s3.proposals.find(p => p.id === img.id).decision, s3.proposals.find(p => p.id === link.id).decision, st.applied.length], ['accepted', 'rejected', 1]);
   check('after Accept the file is rescanned: the image issue is gone', s3.files.find(f => f.uri === indexUri).issues.some(i => i.ruleId === 'img-alt-missing'), false);
 
+  console.log('\nquestions: a fix that needs your answer');
+  const lang = lastState().proposals.find(p => p.ruleId === 'html-missing-lang');
+  check('the question and its suggestions reach the panel; it is not counted as ready', [lang.hasInput, lang.needsInput, lang.suggestions], [true, 'Which language is the page in?', ['en']]);
+  const appliedBefore = st.applied.length;
+  await st.send({ type: 'accept', id: lang.id });
+  await st.send({ type: 'accept', id: lang.id, value: '   ' });
+  check('Apply without an answer changes nothing', [st.applied.length, lastState().proposals.find(p => p.id === lang.id).decision], [appliedBefore, 'pending']);
+  await st.send({ type: 'accept', id: lang.id, value: 'en" onload="x' });
+  await wait(150);
+  check('Apply with an answer inserts it, escaped so it cannot break out of the attribute', docs.get(path.join(root, 'site/index.html')).text.split('\n')[0], '<html lang="en&quot; onload=&quot;x">');
+
   console.log('\nre-running costs nothing for unchanged issues');
   await st.send({ type: 'fixFile', uri: indexUri });
   await wait(150);
   const resent = st.http.length > 1 ? [...st.http[1].body.messages[0].content.find(c => c.type === 'text').text.matchAll(/### I\d+ - ([\w-]+)/g)].map(m => m[1]) : [];
-  check('only the unresolved issue whose surroundings changed is asked again; the answered link is reused', [st.http.length, resent], [2, ['html-missing-lang']]);
+  check('nothing unresolved is left whose surroundings changed: the answered issues are reused, no request', [st.http.length, resent], [1, []]);
   await st.send({ type: 'fixFile', uri: indexUri });
   await wait(150);
-  check('nothing changed since: no request at all', st.http.length, 2);
+  check('nothing changed since: no request at all', st.http.length, 1);
 
   console.log('\nsettings from the panel');
   await st.send({ type: 'setting', key: 'remediationMode', value: 'hybrid' });
