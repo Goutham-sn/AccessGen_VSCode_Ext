@@ -1,4 +1,5 @@
 const { walkNode } = require('../../parsers/htmlParser');
+const { isHiddenHtml } = require('../shared/visibility');
 const { getAccessibleName } = require('../shared/accessibleName');
 
 function getLoc(node) {
@@ -23,6 +24,7 @@ module.exports = {
 
     walkNode(ast, (node) => {
       if (node.tagName !== 'iframe') return;
+      if (isHiddenHtml(node)) return;
 
       // title, aria-label or aria-labelledby; the fallback text between the tags is not
       // a frame name.

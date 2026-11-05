@@ -1,4 +1,5 @@
 const { walkNode } = require('../../parsers/htmlParser');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getAttr(node, name) {
   return (node.attrs || []).find(a => a.name === name);
@@ -37,6 +38,7 @@ module.exports = {
 
     walkNode(ast, (node) => {
       if (node.tagName !== 'video' && node.tagName !== 'audio') return;
+      if (isHiddenHtml(node)) return;
 
       const muted = getAttr(node, 'muted');
       if (muted || (node.attrs || []).some(a => a.name === 'muted')) return;

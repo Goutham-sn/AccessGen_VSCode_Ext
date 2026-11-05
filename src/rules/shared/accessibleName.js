@@ -3,6 +3,7 @@
 // getAccessibleName(node, root, options?) -> { name, source }
 //   options.content === false skips the content step, for elements whose children are
 //   never their name (form, iframe, select/input/textarea).
+//   options.title === false skips the title fallback (a heading's title attribute is not visible text).
 //   source: 'aria-labelledby' | 'aria-label' | 'content' | 'title' | null
 //   name:   '' when the element has no accessible name.
 //
@@ -58,6 +59,9 @@ function contentText(node, includeHidden) {
     else if (child.tagName) {
       if (isHidden(child) && !includeHidden) continue;
       if (child.tagName === 'img') out += ' ' + clean(attr(child, 'alt')) + ' ';
+      // A child with its own label (an icon <svg aria-label="Close">, <i role="img" aria-label=...>) contributes
+      // that label, as in the accname algorithm, instead of its (usually empty) content.
+      else if (clean(attr(child, 'aria-label'))) out += ' ' + clean(attr(child, 'aria-label')) + ' ';
       else out += ' ' + contentText(child, includeHidden) + ' ';
     }
   }
@@ -94,6 +98,7 @@ function getAccessibleName(node, root, options) {
     if (text) return { name: text, source: 'content' };
   }
 
+  if (options && options.title === false) return { name: '', source: null };
   const title = clean(attr(node, 'title'));
   if (title) return { name: title, source: 'title' };
 

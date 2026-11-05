@@ -1,5 +1,6 @@
 const vscode = require('vscode');
 const { getRuleById } = require('./analyzer');
+const { titleOf } = require('./rules/titles');
 
 let diagnosticCollection = null;
 // uri -> violations[], plus fixable violations under fixKey(uri, ruleId, range) -> violation.
@@ -153,17 +154,18 @@ function registerHoverProvider(context) {
 
         if (!violation) return null;
 
-        const severityLabel = violation.severity.toUpperCase();
+        const severityLabel = { critical: 'Critical', warning: 'Warning' }[violation.severity] || 'Advisory';
         const md = new vscode.MarkdownString();
         md.isTrusted = false;
         md.supportHtml = false;
+        const esc = (s) => String(s || '').replace(/[\\`*_{}[\]()#+\-.!|<>]/g, '\\$&');
 
-        md.appendMarkdown(`### ${severityLabel} — ${violation.ruleId}\n\n`);
-        md.appendMarkdown(`**What is wrong:**\n${violation.message.what}\n\n`);
-        md.appendMarkdown(`**Why this affects users:**\n${violation.message.why}\n\n`);
-        md.appendMarkdown(`**How to fix:**\n`);
-        md.appendCodeblock(violation.message.fix, '');
-        md.appendMarkdown(`\n*${violation.message.wcag}*`);
+        md.appendMarkdown(`**${esc(titleOf(violation.ruleId))}**\n\n`);
+        md.appendMarkdown(`${esc(severityLabel)} · ${esc(violation.message.wcag)}\n\n---\n\n`);
+        md.appendMarkdown(`${esc(violation.message.what)}\n\n`);
+        md.appendMarkdown(`**Who is affected:** ${esc(violation.message.why)}\n\n`);
+        md.appendMarkdown(`**How to fix:** ${esc(violation.message.fix)}\n\n`);
+        md.appendMarkdown(`_AccessGen rule \`${violation.ruleId}\`. Fix it with AI from the lightbulb or the AccessGen panel; silence one finding with \`accessgen-disable-next-line ${violation.ruleId}\`._`);
 
         const range = new vscode.Range(
           violation.startLine, violation.startChar,

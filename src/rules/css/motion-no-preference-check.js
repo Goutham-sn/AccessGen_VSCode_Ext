@@ -16,7 +16,7 @@ module.exports = {
     });
 
     ast.walkDecls((decl) => {
-      if (decl.prop === 'animation' || decl.prop === 'animation-name') {
+      if ((decl.prop === 'animation' || decl.prop === 'animation-name') && !/^(none|initial|unset)$/i.test(String(decl.value).trim())) {
         animationDecls.push(decl);
       }
     });

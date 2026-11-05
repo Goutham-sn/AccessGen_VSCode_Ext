@@ -1,4 +1,9 @@
 const { walkJSX } = require('../../parsers/jsxParser');
+const { isHiddenJsx, hasJsxSpread } = require('../shared/visibility');
+
+const isDomElement = (node) => node.name && node.name.type === 'JSXIdentifier' && /^[a-z]/.test(node.name.name);
+const KEY_HANDLERS = ['onKeyDown', 'onKeyUp', 'onKeyPress'];
+const roleOf = (node) => { const r = (node.attributes || []).find(a => a.type === 'JSXAttribute' && a.name && a.name.name === 'role'); return r && r.value && r.value.type === 'StringLiteral' ? r.value.value.trim().toLowerCase() : null; };
 
 function hasJSXAttr(node, name) {
   if (!node.attributes) return false;
@@ -18,6 +23,7 @@ module.exports = {
     walkJSX(ast, (node) => {
       if (node.type !== 'JSXOpeningElement') return;
       if (!node.loc) return;
+      if (!isDomElement(node) || isHiddenJsx(node) || hasJsxSpread(node)) return;
 
       const hasMouseOver = hasJSXAttr(node, 'onMouseOver');
       const hasFocus = hasJSXAttr(node, 'onFocus');

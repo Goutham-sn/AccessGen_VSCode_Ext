@@ -1,5 +1,6 @@
 const { walkNode } = require('../../parsers/htmlParser');
 const { getControlName } = require('../shared/formLabel');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getLoc(node) {
   const loc = node.sourceCodeLocation;
@@ -28,6 +29,7 @@ module.exports = {
 
     for (const sel of selects) {
       // <option> text is the select's value, not its name, so content is never used.
+      if (isHiddenHtml(sel)) continue;
       if (getControlName(sel, ast).name) continue;
 
       const loc = getLoc(sel);

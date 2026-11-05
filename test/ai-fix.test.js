@@ -127,7 +127,7 @@ const HTML = [
   '<h2>Leadership</h2>',
   '<figure><img src="/team/jane-doe-ceo.jpg"><figcaption>Jane Doe, CEO</figcaption></figure>',
   '<p>Read the <a href="/reports/2024.pdf?token=abc"></a> today.</p>',
-  '<p>For pricing <a href="/pricing">click here</a>.</p>',
+  '<div class="cta"><a href="/pricing">click here</a></div>', // no explaining sentence: a 2.4.4 failure
   '</body></html>',
   ''
 ].join('\n');
@@ -592,7 +592,7 @@ async function scenario(opts = {}) {
   await esc.resolve(escAct);
   check('quotes, angle brackets and ampersands are escaped in the attribute', applyEditToText(HTML, escAct.edit).includes('alt="The &quot;big&quot; &lt;chart&gt; &amp; more"'), true);
 
-  const SHAPES = HTML.replace('<p>For pricing <a href="/pricing">click here</a>.</p>', '<a href="/x" aria-label="link">Home</a>\n<a href="/y"><b>Click</b> here</a>');
+  const SHAPES = HTML.replace('<div class="cta"><a href="/pricing">click here</a></div>', '<a href="/x" aria-label="link">Home</a>\n<a href="/y"><b>Click</b> here</a>');
   const sh = await scenario({ text: SHAPES });
   const shapeActs = sh.aiActions().filter(a => a.diagnostics[0].range.start.line >= 5);
   for (const a of shapeActs) await sh.resolve(a);

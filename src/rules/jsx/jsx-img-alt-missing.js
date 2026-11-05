@@ -2,6 +2,7 @@ const { walkJSX } = require('../../parsers/jsxParser');
 const aiFix = require('../shared/aiFix');
 const ctx = require('../shared/elementContext');
 const { findAttr, attrValue } = require('../shared/jsxAccessibleName');
+const { isHiddenJsx, hasJsxSpread } = require('../shared/visibility');
 
 function getJSXAttr(node, name) {
   if (!node.attributes) return null;
@@ -43,6 +44,8 @@ module.exports = {
       if (name.toLowerCase() !== 'img') return;
 
       if (config.isTrustedComponent && config.isTrustedComponent(name)) return;
+      // Spread props may carry alt; an image hidden from assistive technology needs none.
+      if (hasJsxSpread(node) || isHiddenJsx(node)) return;
 
       const roleAttr = getJSXAttr(node, 'role');
       if (roleAttr) {

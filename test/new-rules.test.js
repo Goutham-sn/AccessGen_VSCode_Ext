@@ -79,8 +79,10 @@ ruleSection('B3 heading-empty', 'html', 'heading-empty', [
   ['<div role="heading">Title</div>', '<div role="heading">Title</div>', 0],
   ['<h1 aria-label="Title"></h1>', '<h1 aria-label="Title"></h1>', 0],
   ['<h1 aria-label=""></h1> empty label is not a name', '<h1 aria-label=""></h1>', 1],
-  ['child element counts as content (mirrors jsx-heading-empty)', '<h1><span></span></h1>', 0],
-  ['<h1><img alt=""></h1> child element (mirrors jsx)', '<h1><img src="a" alt=""></h1>', 0],
+  // HTML is static: an empty <span> or a decorative image gives the heading no text (JSX may render text at runtime).
+  ['an empty child element is not content', '<h1><span></span></h1>', 1],
+  ['<h1><img alt=""></h1>: a decorative image is not content', '<h1><img src="a" alt=""></h1>', 1],
+  ['<h1><img alt="Acme"></h1>: an image with alt names the heading', '<h1><img src="a" alt="Acme"></h1>', 0],
   ['nested text', '<h1><span>Title</span></h1>', 0],
   ['non-heading empty div', '<div></div>', 0],
   ['<p></p> not a heading', '<p></p>', 0],
@@ -122,8 +124,9 @@ ruleSection('B4 anchor-no-text (HTML) uses shared list', 'html', 'anchor-no-text
   ['" click here " padded', '<a href="x"> click here </a>', 1],
   ['multi-line', '<a href="x">\n  Read\n  more\n</a>', 1],
   // URL-as-text
-  ['https URL text', '<a href="https://e.com">https://example.com/page</a>', 1],
-  ['www URL text', '<a href="https://e.com">www.example.com</a>', 1],
+  // A URL or domain as link text says exactly where the link goes: not a failure.
+  ['https URL text', '<a href="https://e.com">https://example.com/page</a>', 0],
+  ['www URL text', '<a href="https://e.com">www.example.com</a>', 0],
   ['"HTTP caching guide" is descriptive', '<a href="x">HTTP caching guide</a>', 0],
   ['sentence containing URL', '<a href="x">Visit https://example.com today</a>', 0]
 ]);
@@ -148,8 +151,8 @@ ruleSection('B4 jsx-anchor-no-content (JSX) uses shared list', 'jsx', 'jsx-ancho
   ['multi-line text', J('<a href="x">\n  Learn\n  more\n</a>'), 1],
   ['"Read more about WCAG" ok', J('<a href="x">Read more about WCAG</a>'), 0],
   // URL-as-text
-  ['https URL text', J('<a href="x">https://example.com/page</a>'), 1],
-  ['www URL text', J('<a href="x">www.example.com</a>'), 1],
+  ['https URL text', J('<a href="x">https://example.com/page</a>'), 0],
+  ['www URL text', J('<a href="x">www.example.com</a>'), 0],
   ['"HTTP caching guide" ok', J('<a href="x">HTTP caching guide</a>'), 0],
   // aria-label wins (vague aria-label is a separate, unchanged gap)
   ['generic text but aria-label present', J('<a href="x" aria-label="Annual report">click here</a>'), 0]

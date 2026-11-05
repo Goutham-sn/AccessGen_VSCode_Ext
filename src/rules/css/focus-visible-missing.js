@@ -1,7 +1,9 @@
+const { splitSelectors, exemptSelector } = require('../shared/focusSelectors');
+
 module.exports = {
   id: 'focus-visible-missing',
   language: 'css',
-  severity: 'warning',
+  severity: 'advisory',
   wcag: 'WCAG 2.1 - 2.4.7 (Level AA)',
   check(ast, sourceCode, config) {
     const violations = [];
@@ -14,7 +16,10 @@ module.exports = {
         hasFocusVisible = true;
       }
       if (selector.includes(':focus') && !selector.includes(':focus-visible') && !selector.includes(':focus-within')) {
-        focusRules.push(rule);
+        // Exempt patterns, and rules that remove the outline (outline-removed reports those; one issue, not two).
+        let removes = false;
+        rule.walkDecls((d) => { if (/^outline(-width|-style)?$/i.test(d.prop) && /^(none|0|0px)$/i.test(String(d.value).trim())) removes = true; });
+        if (!removes && !splitSelectors(selector).every(exemptSelector)) focusRules.push(rule);
       }
     });
 
@@ -29,7 +34,7 @@ module.exports = {
 
       violations.push({
         ruleId: 'focus-visible-missing',
-        severity: 'warning',
+        severity: 'advisory',
         startLine: start.line - 1,
         endLine: end.line - 1,
         startChar: start.column - 1,

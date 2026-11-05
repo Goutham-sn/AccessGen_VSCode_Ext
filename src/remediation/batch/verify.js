@@ -88,7 +88,12 @@ function parsesNoWorse(languageId, before, after) {
   return true; // HTML: parse5 recovers from anything; regressions are caught by the rule re-run instead
 }
 
-const countByRule = (violations) => violations.reduce((m, v) => { m[v.ruleId] = (m[v.ruleId] || 0) + 1; return m; }, {});
+// Per rule: all findings (for 'resolves'), and the serious ones (for 'noRegressions': leaving advice behind is fine).
+const countByRule = (violations) => violations.reduce((m, v) => {
+  m[v.ruleId] = (m[v.ruleId] || 0) + 1;
+  if (v.severity !== 'advisory') m['\u0000serious:' + v.ruleId] = (m['\u0000serious:' + v.ruleId] || 0) + 1;
+  return m;
+}, {});
 
 function makeAnalyzer(config) {
   const cfg = { complianceLevel: 'AA', isRuleDisabled: () => false, isTrustedComponent: () => false, ...(config || {}) };
@@ -116,7 +121,9 @@ async function verifyFix({ source, languageId, ruleId, edits, ranges, near, anal
   const before = await analyze(source, languageId);
   const after = await analyze(edited, languageId);
   res.resolves = (after[ruleId] || 0) < (before[ruleId] || 0);
-  res.newIssues = Object.keys(after).filter(r => r !== ruleId && (after[r] || 0) > (before[r] || 0));
+  const SERIOUS = '\u0000serious:';
+  res.newIssues = Object.keys(after).filter(k => k.startsWith(SERIOUS)).map(k => k.slice(SERIOUS.length))
+    .filter(r => r !== ruleId && (after[SERIOUS + r] || 0) > (before[SERIOUS + r] || 0));
   res.noRegressions = res.newIssues.length === 0;
   res.verified = res.resolves && res.noRegressions;
   if (!res.resolves) res.reason = 'the analyzer still reports ' + ruleId + ' after this edit';

@@ -1,5 +1,6 @@
 const { walkNode } = require('../../parsers/htmlParser');
 const { getAccessibleName } = require('../shared/accessibleName');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getAttr(node, name) {
   return (node.attrs || []).find(a => a.name === name);
@@ -17,9 +18,8 @@ function getLoc(node) {
 }
 
 // <input type="..."> kinds whose name is their value attribute.
-// NOTE: browsers supply a default label ("Submit") for a type=submit input that has no
-// value attribute at all. It is included here on request; remove 'submit' to exempt it.
-const BUTTON_INPUT_TYPES = ['button', 'submit'];
+// type=submit and type=reset are not listed: with no value attribute browsers name them "Submit" / "Reset".
+const BUTTON_INPUT_TYPES = ['button'];
 
 // Which structural kind of button this is, or null when the element isn't one.
 function buttonKind(node) {
@@ -46,6 +46,7 @@ module.exports = {
 
       const kind = buttonKind(node);
       if (!kind) return;
+      if (isHiddenHtml(node)) return;
 
       if (kind === 'input') {
         const value = getAttr(node, 'value');

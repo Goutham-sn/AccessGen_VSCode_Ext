@@ -16,6 +16,7 @@ function getLoc(node) {
   };
 }
 
+const { isHiddenHtml } = require('../shared/visibility');
 const VALID_INTERACTIVE_ROLES = ['button', 'link', 'menuitem'];
 
 module.exports = {
@@ -31,6 +32,10 @@ module.exports = {
 
       const onclick = getAttr(node, 'onclick');
       if (!onclick) return;
+      if (isHiddenHtml(node)) return;
+      let delegates = false;
+      walkNode(node, (c) => { if (c !== node && ['button', 'a', 'input', 'select', 'textarea', 'summary'].includes(c.tagName)) delegates = true; });
+      if (delegates) return;
 
       const roleAttr = getAttr(node, 'role');
       const tabindexAttr = getAttr(node, 'tabindex');

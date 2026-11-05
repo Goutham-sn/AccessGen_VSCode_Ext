@@ -1,4 +1,5 @@
 const { walkCSS, parseCSS } = require('../../parsers/cssParser');
+const { restoredBases, allExempt } = require('../shared/focusSelectors');
 const { parseColor, getLuminance, getContrastRatio } = require('../shared/colorMath');
 
 function getLoc(node) {
@@ -266,6 +267,7 @@ module.exports = {
   wcag: 'WCAG 2.1 - 2.4.7 (Level AA)',
   check(ast, sourceCode, config) {
     const violations = [];
+    let restored = null;
 
     walkCSS(ast, (node) => {
       if (node.type !== 'decl') return;
@@ -281,6 +283,8 @@ module.exports = {
 
       const parent = node.parent;
       if (!parent || parent.type !== 'rule') return;
+      if (!restored) restored = restoredBases(ast);
+      if (allExempt(parent, restored)) return;
 
       let hasCompensatingStyle = false;
       parent.walkDecls((decl) => {

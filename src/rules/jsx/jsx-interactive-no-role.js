@@ -1,4 +1,9 @@
 const { walkJSX } = require('../../parsers/jsxParser');
+const { isHiddenJsx, hasJsxSpread } = require('../shared/visibility');
+
+const isDomElement = (node) => node.name && node.name.type === 'JSXIdentifier' && /^[a-z]/.test(node.name.name);
+const KEY_HANDLERS = ['onKeyDown', 'onKeyUp', 'onKeyPress'];
+const roleOf = (node) => { const r = (node.attributes || []).find(a => a.type === 'JSXAttribute' && a.name && a.name.name === 'role'); return r && r.value && r.value.type === 'StringLiteral' ? r.value.value.trim().toLowerCase() : null; };
 
 function getElementName(node) {
   if (!node.name) return '';
@@ -32,9 +37,10 @@ module.exports = {
       const name = getElementName(node);
       if (!NON_SEMANTIC_TAGS.includes(name.toLowerCase())) return;
 
-      const hasClick = hasJSXAttr(node, 'onClick');
-      const hasKeyDown = hasJSXAttr(node, 'onKeyDown');
-      if (!hasClick && !hasKeyDown) return;
+      // Without a keyboard handler jsx-onclick-no-keyboard already reports this element (one issue per element, not two):
+      // this rule is for elements that already work with the keyboard but are not announced as interactive.
+      if (!KEY_HANDLERS.some(h => hasJSXAttr(node, h))) return;
+      if (!isDomElement(node) || isHiddenJsx(node) || hasJsxSpread(node)) return;
 
       if (hasJSXAttr(node, 'role')) return;
 

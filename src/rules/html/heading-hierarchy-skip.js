@@ -1,4 +1,5 @@
 const { walkNode } = require('../../parsers/htmlParser');
+const { isHiddenHtml } = require('../shared/visibility');
 
 const HEADING_TAGS = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
 
@@ -17,14 +18,14 @@ function getLoc(node) {
 module.exports = {
   id: 'heading-hierarchy-skip',
   language: 'html',
-  severity: 'warning',
+  severity: 'advisory',
   wcag: 'WCAG 2.1 - 1.3.1 (Level A)',
   check(ast, sourceCode, config) {
     const violations = [];
     const headings = [];
 
     walkNode(ast, (node) => {
-      if (node.tagName && HEADING_TAGS[node.tagName]) {
+      if (node.tagName && HEADING_TAGS[node.tagName] && !isHiddenHtml(node)) {
         headings.push({
           node,
           level: HEADING_TAGS[node.tagName]
@@ -42,13 +43,13 @@ module.exports = {
 
         violations.push({
           ruleId: 'heading-hierarchy-skip',
-          severity: 'warning',
+          severity: 'advisory',
           startLine: loc.startLine,
           endLine: loc.endLine,
           startChar: loc.startChar,
           endChar: loc.endChar,
           message: {
-            what: `Heading level skipped from h${prev.level} to h${curr.level}.`,
+            what: `Heading level skipped from h${prev.level} to h${curr.level} (a best practice, not a WCAG failure on its own).`,
             why: 'Screen reader users navigate pages by heading structure. A skipped level breaks the outline and makes navigation confusing — like a book jumping from chapter 1 to section 1.3 with no 1.1 or 1.2.',
             fix: `Use h${prev.level + 1} here instead of h${curr.level}, or restructure your heading hierarchy so levels are sequential.`,
             wcag: 'WCAG 2.1 - 1.3.1 (Level A)'

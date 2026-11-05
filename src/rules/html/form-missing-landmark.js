@@ -1,4 +1,5 @@
 const { walkNode } = require('../../parsers/htmlParser');
+const { isHiddenHtml } = require('../shared/visibility');
 const { getAccessibleName } = require('../shared/accessibleName');
 
 function getLoc(node) {
@@ -16,13 +17,19 @@ function getLoc(node) {
 module.exports = {
   id: 'form-missing-landmark',
   language: 'html',
-  severity: 'warning',
+  severity: 'advisory',
   wcag: 'WCAG 2.1 - 1.3.1 (Level A)',
   check(ast, sourceCode, config) {
     const violations = [];
 
+    // An unnamed form is simply not exposed as a landmark, which WCAG does not require. Names only help users tell
+    // several forms apart, so this is advice and only reported when there is more than one form.
+    const forms = [];
+    walkNode(ast, (n) => { if (n.tagName === 'form' && !isHiddenHtml(n)) forms.push(n); });
+    if (forms.length < 2) return violations;
+
     walkNode(ast, (node) => {
-      if (node.tagName !== 'form') return;
+      if (node.tagName !== 'form' || isHiddenHtml(node)) return;
 
       // A form's children are never its name: aria-labelledby, aria-label, title only.
       if (getAccessibleName(node, ast, { content: false }).name) return;
@@ -32,7 +39,7 @@ module.exports = {
 
       violations.push({
         ruleId: 'form-missing-landmark',
-        severity: 'warning',
+        severity: 'advisory',
         startLine: loc.startLine,
         endLine: loc.endLine,
         startChar: loc.startChar,

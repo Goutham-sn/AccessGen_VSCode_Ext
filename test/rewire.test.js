@@ -34,7 +34,9 @@ section('1. button-empty', 'html', 'button-empty', [
   ['GAP aria-hidden text does not count as a name', '<button><span aria-hidden="true">X</span></button>', 1],
   ['GAP title-only button has a name (was a false positive)', '<button title="Close"></button>', 0],
   ['GAP <input type="button"> no value', '<input type="button">', 1],
-  ['GAP <input type="submit"> no value', '<input type="submit">', 1],
+  // Browsers name a submit input with no value "Submit": it has an accessible name.
+  ['<input type="submit"> no value (browser default name)', '<input type="submit">', 0],
+  ['<input type="button"> no value', '<input type="button">', 1],
   ['GAP <input type="button" value=""> empty value', '<input type="button" value="">', 1],
   ['GAP <div role="button"> empty', '<div role="button"></div>', 1],
   ['GAP <a role="button"> empty', '<a role="button" href="#"></a>', 1],
@@ -69,17 +71,17 @@ section('1. button-empty', 'html', 'button-empty', [
 ]);
 
 section('2. form-missing-landmark', 'html', 'form-missing-landmark', [
-  ['GAP dangling aria-labelledby', '<form aria-labelledby="zz"></form>', 1],
-  ['GAP whitespace aria-labelledby', '<form aria-labelledby="  "></form>', 1],
-  ['GAP aria-labelledby resolving to empty text', '<span id="l"> </span><form aria-labelledby="l"></form>', 1],
-  ['content is not a form name', '<form>Contact us</form>', 1],
-  ['no name', '<form></form>', 1],
-  ['aria-label=""', '<form aria-label=""></form>', 1],
-  ['aria-labelledby=""', '<form aria-labelledby=""></form>', 1],
-  ['role=search, no name', '<form role="search"></form>', 1],
-  ['aria-label', '<form aria-label="Contact"></form>', 0],
-  ['aria-labelledby resolved', '<h2 id="h">Contact</h2><form aria-labelledby="h"></form>', 0],
-  ['title', '<form title="Contact"></form>', 0]
+  ['GAP dangling aria-labelledby', '<form aria-label="Other form"></form><form aria-labelledby="zz"></form>', 1],
+  ['GAP whitespace aria-labelledby', '<form aria-label="Other form"></form><form aria-labelledby="  "></form>', 1],
+  ['GAP aria-labelledby resolving to empty text', '<form aria-label="Other form"></form><span id="l"> </span><form aria-labelledby="l"></form>', 1],
+  ['content is not a form name', '<form aria-label="Other form"></form><form>Contact us</form>', 1],
+  ['no name', '<form aria-label="Other form"></form><form></form>', 1],
+  ['aria-label=""', '<form aria-label="Other form"></form><form aria-label=""></form>', 1],
+  ['aria-labelledby=""', '<form aria-label="Other form"></form><form aria-labelledby=""></form>', 1],
+  ['role=search, no name', '<form aria-label="Other form"></form><form role="search"></form>', 1],
+  ['aria-label', '<form aria-label="Other form"></form><form aria-label="Contact"></form>', 0],
+  ['aria-labelledby resolved', '<form aria-label="Other form"></form><h2 id="h">Contact</h2><form aria-labelledby="h"></form>', 0],
+  ['title', '<form aria-label="Other form"></form><form title="Contact"></form>', 0]
 ]);
 
 section('3. input-label-missing', 'html', 'input-label-missing', [
@@ -152,7 +154,8 @@ section('5. anchor-no-text', 'html', 'anchor-no-text', [
   ['click here', '<a href="x">click here</a>', 1],
   ['Read more', '<a href="x">Read more</a>', 1],
   ['Click here!', '<a href="x">Click here!</a>', 1],
-  ['URL text', '<a href="x">https://example.com/page</a>', 1],
+  // A URL as link text says where the link goes: it meets 2.4.4.
+  ['URL text', '<a href="x">https://example.com/page</a>', 0],
   ['img alt non-empty', '<a href="x"><img alt="Home" src="a"></a>', 0],
   ['descriptive text', '<a href="x">Read the annual report</a>', 0],
   ['aria-label', '<a href="x" aria-label="Annual report"></a>', 0]
@@ -234,7 +237,7 @@ section('8. jsx-anchor-no-content', 'jsx', 'jsx-anchor-no-content', [
   ['click here', J('<a href="x">click here</a>'), 1],
   ['Click here!', J('<a href="x">Click here!</a>'), 1],
   ['{"read more"}', J('<a href="x">{"read more"}</a>'), 1],
-  ['URL text', J('<a href="x">https://example.com/page</a>'), 1],
+  ['URL text', J('<a href="x">https://example.com/page</a>'), 0],
   ['descriptive text', J('<a href="x">Read the annual report</a>'), 0],
   ['aria-label', J('<a href="x" aria-label="Report"/>'), 0],
   ['aria-label beats generic text', J('<a href="x" aria-label="Annual report">click here</a>'), 0]

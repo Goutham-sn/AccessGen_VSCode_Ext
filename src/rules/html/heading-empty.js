@@ -1,4 +1,6 @@
 const { walkNode } = require('../../parsers/htmlParser');
+const { getAccessibleName } = require('../shared/accessibleName');
+const { isHiddenHtml } = require('../shared/visibility');
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
 
@@ -20,13 +22,6 @@ function getLoc(node) {
 
 // Mirrors jsx-heading-empty's hasTextContent: non-whitespace text, or any child
 // element, counts as content. Comments and whitespace-only text do not.
-function hasContent(node) {
-  for (const child of node.childNodes || []) {
-    if (child.nodeName === '#text' && (child.value || '').trim()) return true;
-    if (child.tagName) return true;
-  }
-  return false;
-}
 
 module.exports = {
   id: 'heading-empty',
@@ -46,7 +41,8 @@ module.exports = {
       const ariaLabel = getAttr(node, 'aria-label');
       if (ariaLabel && ariaLabel.value && ariaLabel.value.trim()) return;
 
-      if (hasContent(node)) return;
+      if (isHiddenHtml(node)) return;
+      if (getAccessibleName(node, ast, { title: false }).name) return;
 
       const loc = getLoc(node);
       if (!loc) return;

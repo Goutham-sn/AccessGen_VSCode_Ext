@@ -1,6 +1,7 @@
 const { walkNode } = require('../../parsers/htmlParser');
 const aiFix = require('../shared/aiFix');
 const ctx = require('../shared/elementContext');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getAttr(node, name) {
   return (node.attrs || []).find(a => a.name === name);
@@ -33,6 +34,9 @@ module.exports = {
       if (roleAttr && (roleAttr.value === 'presentation' || roleAttr.value === 'none')) {
         return;
       }
+
+      // Hidden from assistive technology (aria-hidden, hidden, display:none): no text alternative is needed.
+      if (isHiddenHtml(node)) return;
 
       const altAttr = getAttr(node, 'alt');
       if (altAttr && altAttr.value !== undefined && altAttr.value !== null) {

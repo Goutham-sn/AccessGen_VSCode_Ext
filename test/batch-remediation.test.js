@@ -145,9 +145,11 @@ const PAGE = [
   console.log('\nverification');
   const an = V.makeAnalyzer(CFG);
   const ok = await V.verifyFix({ source: PAGE, languageId: 'html', ruleId: 'img-alt-missing', edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="Portrait of the CEO">' }], analyze: an });
+  const adv = await V.verifyFix({ source: PAGE, languageId: 'html', ruleId: 'img-alt-missing', edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="CEO" id="em">' }], analyze: an });
+  check('...but leaving only advice behind (a duplicate id nothing refers to) still counts as a verified fix', [adv.verified, adv.newIssues], [true, []]);
   check('a correct edit is verified', [ok.applies, ok.parses, ok.resolves, ok.noRegressions, ok.verified], [true, true, true, true, true]);
-  const reg = await V.verifyFix({ source: PAGE, languageId: 'html', ruleId: 'img-alt-missing', edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="CEO" id="em">' }], analyze: an });
-  check('an edit that creates a new issue (a duplicate id) is NOT verified, and says why', [reg.resolves, reg.verified, reg.newIssues], [true, false, ['duplicate-id']]);
+  const reg = await V.verifyFix({ source: PAGE, languageId: 'html', ruleId: 'img-alt-missing', edits: [{ find: '<img src="ceo.png">', replace: '<img src="ceo.png" alt="CEO" id="dup">' }], analyze: an });
+  check('an edit that creates a new issue (another copy of an id a <label> points at) is NOT verified, and says why', [reg.resolves, reg.verified, reg.newIssues], [true, false, ['duplicate-id']]);
   const nores = await V.verifyFix({ source: PAGE, languageId: 'html', ruleId: 'img-alt-missing', edits: [{ find: '<h1>Team</h1>', replace: '<h1>Our team</h1>' }], analyze: an });
   check('an edit that does not resolve the issue is not verified', [nores.applies, nores.resolves, nores.verified, /still reports/.test(nores.reason)], [true, false, false, true]);
   check('a find that occurs several times is refused unless one is inside the issue region', [V.locate('a b a', 'a').error !== undefined, V.locate('a b a', 'a', [3, 5]).start], [true, 4]);

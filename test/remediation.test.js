@@ -248,11 +248,12 @@ async function scenario(opts = {}) {
   const { analyzeDocument } = require('../src/analyzer');
   const direct = {};
   for (const m of ['manual', 'hybrid', 'auto']) direct[m] = JSON.stringify(await analyzeDocument({ getText: () => CSS, languageId: 'css' }, { complianceLevel: 'AA', remediationMode: m, isRuleDisabled: () => false, isTrustedComponent: () => false }));
-  check('analyzeDocument returns identical violations in every mode', [direct.manual === direct.hybrid, direct.hybrid === direct.auto, JSON.parse(direct.manual).length], [true, true, 4]);
+  check('analyzeDocument returns identical violations in every mode', [direct.manual === direct.hybrid, direct.hybrid === direct.auto, JSON.parse(direct.manual).length], [true, true, 2]);
   const firstScan = {};
   for (const m of ['manual', 'hybrid', 'auto']) { const sc = await scenario({ mode: m }); firstScan[m] = JSON.stringify(sc.state.diagnostics[0]); }
   check('the first published diagnostics are identical in every mode (fixes come after)', [firstScan.manual === firstScan.hybrid, firstScan.hybrid === firstScan.auto], [true, true]);
-  check('...and contain 2 outline-removed + 2 focus-visible-missing', (() => { const d = JSON.parse(firstScan.manual); return [d.filter(x => x.code === 'outline-removed').length, d.filter(x => x.code === 'focus-visible-missing').length]; })(), [2, 2]);
+  // focus-visible-missing no longer repeats a :focus rule that outline-removed already reports (one issue, not two)
+  check('...and contain 2 outline-removed and no duplicate focus-visible-missing', (() => { const d = JSON.parse(firstScan.manual); return [d.filter(x => x.code === 'outline-removed').length, d.filter(x => x.code === 'focus-visible-missing').length]; })(), [2, 0]);
 
   // ============================================================== manual: unchanged
   console.log('\nmanual mode: existing behaviour completely unchanged');

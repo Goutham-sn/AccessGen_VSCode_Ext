@@ -2,7 +2,46 @@ const { walkJSX } = require('../../parsers/jsxParser');
 const aiFix = require('../shared/aiFix');
 const ctx = require('../shared/elementContext');
 const { findAttr, attrValue, getJsxAccessibleName } = require('../shared/jsxAccessibleName');
-const { isGenericLinkText, isUrlLinkText } = require('../shared/genericLinkText');
+const { isGenericLinkText } = require('../shared/genericLinkText');
+const { judgeLinkText, CONTEXT_BLOCKS } = require('../shared/linkPurpose');
+const { isHiddenJsx, hasJsxSpread } = require('../shared/visibility');
+
+// JSXElement -> its nearest JSXElement ancestor, for the whole file.
+function parentMap(ast) {
+  const parents = new WeakMap();
+  (function visit(node, parent) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(n => visit(n, parent)); return; }
+    if (typeof node.type !== 'string') return;
+    let next = parent;
+    if (node.type === 'JSXElement') { parents.set(node, parent); next = node; }
+    for (const k of Object.keys(node)) {
+      if (k === 'loc' || k === 'leadingComments' || k === 'trailingComments') continue;
+      const c = node[k];
+      if (c && typeof c === 'object') visit(c, next);
+    }
+  })(ast, null);
+  return parents;
+}
+
+// Text around the link in its sentence-like block. A dynamic {expression} may well hold the explaining text, so it
+// counts as text: a link is never reported because of content AccessGen cannot read.
+function jsxLinkContext(link, parents) {
+  let block = parents.get(link);
+  while (block && !CONTEXT_BLOCKS.has(getElementName(block.openingElement).toLowerCase())) block = parents.get(block);
+  const from = block || parents.get(link);
+  if (!from) return '';
+  let out = '';
+  (function visit(children) {
+    for (const c of children || []) {
+      if (c === link) continue;
+      if (c.type === 'JSXText') out += ' ' + c.value;
+      else if (c.type === 'JSXExpressionContainer' && c.expression.type !== 'JSXEmptyExpression') out += c.expression.type === 'StringLiteral' ? ' ' + c.expression.value : ' dynamic text ';
+      else if (c.type === 'JSXElement' || c.type === 'JSXFragment') visit(c.children);
+    }
+  })(from.children);
+  return out;
+}
 
 function getElementName(node) {
   if (!node.name) return '';
@@ -13,20 +52,6 @@ function getElementName(node) {
   return '';
 }
 
-const NO_TEXT_MESSAGE = {
-  what: 'This link has no descriptive text.',
-  why: 'Screen reader users often navigate by listing all links on a page. Hearing \'click here\' or \'read more\' multiple times gives them no idea where each link goes.',
-  fix: "Replace with descriptive text like <a href='...'>Read our accessibility guide</a>, or add aria-label='Descriptive link purpose' to the anchor.",
-  wcag: 'WCAG 2.1 - 2.4.4 (Level A)'
-};
-
-const URL_MESSAGE = {
-  what: "This link's text is a raw URL.",
-  why: 'Screen readers read a URL character by character, which is slow and tells the user nothing about where the link leads.',
-  fix: "Replace the URL with a description of the destination, e.g. <a href='...'>Our accessibility guide</a>.",
-  wcag: 'WCAG 2.1 - 2.4.4 (Level A)'
-};
-
 module.exports = {
   id: 'jsx-anchor-no-content',
   language: 'jsx',
@@ -34,6 +59,7 @@ module.exports = {
   wcag: 'WCAG 2.1 - 2.4.4 (Level A)',
   check(ast, sourceCode, config) {
     const violations = [];
+    let parents = null;
 
     walkJSX(ast, (node) => {
       if (node.type !== 'JSXElement') return;
@@ -41,24 +67,30 @@ module.exports = {
 
       const name = getElementName(node.openingElement);
       if (name !== 'a') return;
+      const opening = node.openingElement;
+      // Only real links: no href (and no role="link") is not a link; spread props may supply href or a name.
+      const role = findAttr(opening, 'role');
+      const roleVal = role ? attrValue(role) : { state: 'absent' };
+      if (!findAttr(opening, 'href') && !(roleVal.state === 'static' && roleVal.text.trim().toLowerCase() === 'link')) return;
+      if (hasJsxSpread(opening) || isHiddenJsx(opening)) return;
 
       // Resolved name: aria-labelledby, aria-label, content, title. A name that can't be
       // read statically ({children}, aria-label={x}, <Icon/>, ...) is assumed to be fine.
       const resolved = getJsxAccessibleName(node, ast);
       if (resolved.unknown) return;
 
-      let message = null;
-      if (!resolved.name) message = NO_TEXT_MESSAGE;
-      else if (isUrlLinkText(resolved.name)) message = URL_MESSAGE;
-      else if (isGenericLinkText(resolved.name)) message = NO_TEXT_MESSAGE;
-      if (!message) return;
+      if (resolved.name && !isGenericLinkText(resolved.name)) return;
+      if (!parents) parents = parentMap(ast);
+      const verdict = judgeLinkText(resolved.name, jsxLinkContext(node, parents), config && config.complianceLevel, isGenericLinkText);
+      if (!verdict) return;
+      const message = verdict.message;
 
       const loc = node.openingElement.loc || node.loc;
       if (!loc) return;
 
       violations.push({
         ruleId: 'jsx-anchor-no-content',
-        severity: 'critical',
+        severity: verdict.severity,
         startLine: loc.start.line - 1,
         endLine: loc.end.line - 1,
         startChar: loc.start.column,

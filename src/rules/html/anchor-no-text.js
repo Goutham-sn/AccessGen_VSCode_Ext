@@ -2,7 +2,9 @@ const { walkNode } = require('../../parsers/htmlParser');
 const aiFix = require('../shared/aiFix');
 const ctx = require('../shared/elementContext');
 const { getAccessibleName } = require('../shared/accessibleName');
-const { isGenericLinkText, isUrlLinkText } = require('../shared/genericLinkText');
+const { isGenericLinkText } = require('../shared/genericLinkText');
+const { judgeLinkText, htmlLinkContext } = require('../shared/linkPurpose');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getLoc(node) {
   const loc = node.sourceCodeLocation;
@@ -16,19 +18,20 @@ function getLoc(node) {
   };
 }
 
-const NO_TEXT_MESSAGE = {
-  what: 'This link has no descriptive text.',
-  why: 'Screen reader users often navigate by listing all links on a page. Hearing \'click here\' or \'read more\' multiple times gives them no idea where each link goes.',
-  fix: "Replace with descriptive text like <a href='...'>Read our accessibility guide</a>, or add aria-label='Descriptive link purpose' to the anchor.",
-  wcag: 'WCAG 2.1 - 2.4.4 (Level A)'
-};
+const getAttr = (node, name) => { const a = (node.attrs || []).find(x => x.name === name); return a ? a.value : undefined; };
 
-const URL_MESSAGE = {
-  what: "This link's text is a raw URL.",
-  why: 'Screen readers read a URL character by character, which is slow and tells the user nothing about where the link leads.',
-  fix: "Replace the URL with a description of the destination, e.g. <a href='...'>Our accessibility guide</a>.",
-  wcag: 'WCAG 2.1 - 2.4.4 (Level A)'
-};
+// Visible text of `block` with the `link` subtree left out.
+function textWithout(block, link) {
+  let out = '';
+  (function visit(n) {
+    for (const c of n.childNodes || []) {
+      if (c === link) continue;
+      if (c.nodeName === '#text') out += ' ' + (c.value || '');
+      else if (c.tagName && !['script', 'style'].includes(c.tagName)) visit(c);
+    }
+  })(block);
+  return out;
+}
 
 module.exports = {
   id: 'anchor-no-text',
@@ -40,23 +43,25 @@ module.exports = {
 
     walkNode(ast, (node) => {
       if (node.tagName !== 'a') return;
+      // Only real links: an <a> without href (a placeholder or named anchor) is not focusable and not a link.
+      const role = getAttr(node, 'role');
+      if (getAttr(node, 'href') === undefined && !(role && role.trim().toLowerCase() === 'link')) return;
+      if (isHiddenHtml(node)) return;
 
       const loc = getLoc(node);
       if (!loc) return;
 
-      // The link's resolved name (aria-labelledby, aria-label, content, title), then the
-      // empty / generic-phrase / raw-URL checks layered on top of it.
+      // The link's resolved name (aria-labelledby, aria-label, content, title). A URL or domain as the text is a
+      // valid name: it says exactly where the link goes. A generic phrase fails only when its sentence does not
+      // explain it (see shared/linkPurpose.js).
       const { name } = getAccessibleName(node, ast);
-
-      let message = null;
-      if (!name) message = NO_TEXT_MESSAGE;
-      else if (isUrlLinkText(name)) message = URL_MESSAGE;
-      else if (isGenericLinkText(name)) message = NO_TEXT_MESSAGE;
-      if (!message) return;
+      const verdict = judgeLinkText(name, htmlLinkContext(node, (block, link) => textWithout(block, link)), config && config.complianceLevel, isGenericLinkText);
+      if (!verdict) return;
+      const message = verdict.message;
 
       violations.push({
         ruleId: 'anchor-no-text',
-        severity: 'critical',
+        severity: verdict.severity,
         startLine: loc.startLine,
         endLine: loc.endLine,
         startChar: loc.startChar,

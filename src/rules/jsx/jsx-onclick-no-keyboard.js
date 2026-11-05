@@ -1,4 +1,9 @@
 const { walkJSX } = require('../../parsers/jsxParser');
+const { isHiddenJsx, hasJsxSpread } = require('../shared/visibility');
+
+const isDomElement = (node) => node.name && node.name.type === 'JSXIdentifier' && /^[a-z]/.test(node.name.name);
+const KEY_HANDLERS = ['onKeyDown', 'onKeyUp', 'onKeyPress'];
+const roleOf = (node) => { const r = (node.attributes || []).find(a => a.type === 'JSXAttribute' && a.name && a.name.name === 'role'); return r && r.value && r.value.type === 'StringLiteral' ? r.value.value.trim().toLowerCase() : null; };
 
 function getElementName(node) {
   if (!node.name) return '';
@@ -37,8 +42,14 @@ module.exports = {
       // JSX native elements are always lowercase identifiers in source. A capitalised tag
       // (<A>, <Select>) or a member expression (<Foo.A>) is a component, never native,
       // so it must not be exempted by the native-element list.
-      const isNative = node.name.type === 'JSXIdentifier' && NATIVE_INTERACTIVE.includes(name);
-      if (isNative) return;
+      // Components (<Card onClick>) render their own element; only native DOM elements are checked here.
+      if (!isDomElement(node)) return;
+      // Natively keyboard-operable. An <a> only with href: without it, it is not focusable.
+      const hasHref = (node.attributes || []).some(a => a.type === 'JSXAttribute' && a.name && a.name.name === 'href');
+      if (NATIVE_INTERACTIVE.includes(name) && (name !== 'a' || hasHref)) return;
+      if (name === 'label' || name === 'summary' || name === 'option') return;
+      if (isHiddenJsx(node) || hasJsxSpread(node)) return;
+      if (['presentation', 'none'].includes(roleOf(node))) return;
 
       if (!hasJSXAttr(node, 'onClick')) return;
 

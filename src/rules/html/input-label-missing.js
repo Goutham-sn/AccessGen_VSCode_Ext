@@ -1,5 +1,6 @@
 const { walkNode } = require('../../parsers/htmlParser');
 const { getControlName } = require('../shared/formLabel');
+const { isHiddenHtml } = require('../shared/visibility');
 
 function getAttr(node, name) {
   return (node.attrs || []).find(a => a.name === name);
@@ -39,23 +40,28 @@ module.exports = {
         if (EXEMPT_TYPES.includes(typeVal)) continue;
       }
 
+      if (isHiddenHtml(control)) continue;
       if (getControlName(control, ast).name) continue;
+
+      // A placeholder does give the field a name, but it disappears as soon as the user types: a weaker problem.
+      const placeholder = getAttr(control, 'placeholder');
+      const placeholderOnly = !!(placeholder && placeholder.value && placeholder.value.trim());
 
       const loc = getLoc(control);
       if (!loc) continue;
 
       violations.push({
         ruleId: 'input-label-missing',
-        severity: 'critical',
+        severity: placeholderOnly ? 'warning' : 'critical',
         startLine: loc.startLine,
         endLine: loc.endLine,
         startChar: loc.startChar,
         endChar: loc.endChar,
         message: {
-          what: 'This input field has no label.',
-          why: 'When a screen reader focuses this field, it will only say \'edit text\' or the input type with no context. The user has no idea what to type.',
+          what: placeholderOnly ? 'This field is labelled only by its placeholder text.' : 'This input field has no label.',
+          why: placeholderOnly ? 'The placeholder disappears as soon as the user starts typing, and its usually low contrast is hard to read, so users lose track of what the field is for.' : 'When a screen reader focuses this field, it will only say \'edit text\' or the input type with no context. The user has no idea what to type.',
           fix: "Add <label for='your-input-id'>Field Name</label> before this input, or wrap the input inside a <label> element, or add aria-label='Field Name' directly on the input.",
-          wcag: 'WCAG 2.1 - 1.3.1 (Level A)'
+          wcag: placeholderOnly ? 'WCAG 2.1 - 3.3.2 (Level A)' : 'WCAG 2.1 - 1.3.1 (Level A)'
         }
       });
     }
